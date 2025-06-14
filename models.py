@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import numpy as np
+
 
 
 class DiffusionModel(nn.Module):
@@ -10,19 +12,20 @@ class DiffusionModel(nn.Module):
             nn.ReLU(),
         )
         self.decoder = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim + 1, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, output_dim),
         )
 
-    def forward(self, x, noise_level):
+    def forward(self, x, noise_level, radio_flux=None):
         # Add noise to the input (forward process)
-        noise = torch.randn_like(x) * noise_level
+        noise = torch.normal(mean=0, std=noise_level, size=x.size()).to(x.device)
         noisy_x = x + noise
 
         # Encode and decode (reverse process)
         encoded = self.encoder(noisy_x)
-        reconstructed = self.decoder(encoded + noisy_x)
+        middle = torch.cat((encoded + noisy_x, radio_flux), dim=1) 
+        reconstructed = self.decoder(middle)
 
         # Additive skip connection
         output = reconstructed

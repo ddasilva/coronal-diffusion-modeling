@@ -6,6 +6,7 @@ import json
 
 def sample(
     nsteps=50,
+    radio_flux=1,
     output_dim=8372,
     input_dim=8372,
     hidden_dim=8372,
@@ -20,13 +21,16 @@ def sample(
     model = models.DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
     model.load_state_dict(torch.load(weights_file, map_location=device))
 
-    input = torch.from_numpy(np.random.normal(size=(1, 8372))).float().to(device)
+    noise = torch.normal(mean=0, std=1, size=(1, output_dim))
+    input = noise.float().to(device)
+    radio_flux = torch.from_numpy(np.array([radio_flux]).reshape(1, -1)).float().to(device)
+
     history = [input.clone()]
 
     with torch.no_grad():
         model.eval()
         for _ in range(nsteps):
-            input = model(input, torch.zeros(1).item())
+            input = model(input, torch.zeros(1).item(), radio_flux)
             history.append(input.clone())
 
     history = [H.cpu().detach().squeeze().numpy() for H in history]

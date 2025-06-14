@@ -46,9 +46,13 @@ class CoronalFieldDatasetHDF(Dataset):
     def __init__(self, path):
         with h5py.File(path) as hdf:
             self.X = hdf["X"][:]
+            self.radio_fluxes = hdf["radio_fluxes"][:]
 
     def __len__(self):
         return self.X.shape[0]
 
     def __getitem__(self, idx):
-        return torch.from_numpy(self.X[idx]).float()
+        X = torch.from_numpy(self.X[idx]).float()
+        radio_flux = torch.from_numpy(np.array([self.radio_fluxes[idx]])).float()
+
+        return X, radio_flux

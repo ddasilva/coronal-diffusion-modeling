@@ -1,30 +1,65 @@
 import glob
+import os
+import datetime
 
 from astropy.io import fits
 import numpy as np
 import pyshtools
 import tqdm
 import h5py
+import pandas as pd
+from matplotlib.dates import date2num
 
 
 def main(root_dir, out_file):
+    # Load the radio flux data
+    df_radio = pd.read_csv(
+        'data/penticton_radio_flux.csv',
+        names=['times', 'observed_flux', 'adjusted_flux'],
+        skiprows=1,
+        parse_dates=['times']
+    )
+    df_radio.sort_values(by='times', inplace=True)
+    df_radio.drop_duplicates(subset=['times'], keep='first', inplace=True)
+    df_radio['adjusted_flux_smoothed'] = df_radio['adjusted_flux'].rolling(window=27).mean()
+    radio_fluxes = []
+
+    # Load magnetic field data
     files = glob.glob(f"{root_dir}/*R000*.fits")
+    files.sort()
     items = []
 
     for file in tqdm.tqdm(files, desc="Processing files"):
+        time = datetime.datetime.strptime(
+            os.path.basename(file).split('R')[0], 'wsa_%Y%m%d%H%M'
+        )
+        radio_flux = float(np.interp(
+            date2num(pd.Timestamp(time)),
+            date2num(df_radio['times']),
+            df_radio['adjusted_flux_smoothed'],
+        ))
+
         for G, H in enumerate_variations(file):
             items.append(
                 np.array(
                     [G[np.tril_indices(G.shape[0])], H[np.tril_indices(H.shape[0])]]
                 ).flatten()
             )
+            radio_fluxes.append(radio_flux)
 
     items = np.array(items)
+    radio_fluxes = np.array(radio_fluxes)
+
+    # Normalize the radio fluxes
+    radio_fluxes = (radio_fluxes - np.min(radio_fluxes)) / np.max(radio_fluxes)
 
     print(items)
+    print(radio_fluxes)
 
+    # Write to HDF file
     with h5py.File(out_file, "w") as hdf:
         hdf["X"] = items
+        hdf['radio_fluxes'] = radio_fluxes
 
 
 def enumerate_variations(file_path):
