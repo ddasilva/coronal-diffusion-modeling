@@ -31,7 +31,7 @@ def sample(
         model.eval()
         for i in range(nsteps):
             # Linearly decreasing noise level from 1 to 0 over nsteps
-            noise_level = 1.0 - i / max(1, nsteps - 1)
+            noise_level = torch.from_numpy(np.array([1.0 - i / max(1, nsteps - 1)])).float().to(device)
             input = model(input, noise_level, radio_flux)
             history.append(input.clone())
 

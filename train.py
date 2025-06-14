@@ -12,10 +12,11 @@ input_dim = 8372
 hidden_dim = 8372
 output_dim = 8372
 batch_size = 16
-epochs = 5
+epochs = 10
 learning_rate = 0.0001
 num_workers = 0
-out_path_template = "diffusion_model_%d.pth"
+run_name = "attention"
+out_path_template = f"{run_name}_%d.pth"
 
 # Dataset and DataLoader
 train_dataset = CoronalFieldDatasetHDF("training_dataset.h5")
@@ -42,7 +43,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0)
 
 # Initialize TensorBoard writer
-writer = SummaryWriter(log_dir="runs/attention")
+writer = SummaryWriter(log_dir=f"runs/{run_name}")
 
 
 # Training Loop
@@ -124,7 +125,7 @@ for epoch in range(epochs):
     print(f"Epoch [{epoch+1}/{epochs}], Test Loss: {test_loss:.4f}")
 
     # Save the model
-    out_path = out_path_template % epoch + 1
+    out_path = out_path_template % (epoch + 1)
     torch.save(model.state_dict(), out_path)
     print('Model checkpoint:', out_path)
 
