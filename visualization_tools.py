@@ -3,7 +3,7 @@ import pyshtools
 import plotly.graph_objects as go
 from ai import cs
 
-OUTER_BOUNDARY = 2.5
+OUTER_BOUNDARY = 5
 
 
 class SHVisualizer:
@@ -11,7 +11,7 @@ class SHVisualizer:
     def __init__(self, G, H):
         coeffs_array = np.array([G, H])
         self.coeffs = pyshtools.SHMagCoeffs.from_array(
-            coeffs_array, normalization="schmidt", r0=1
+            coeffs_array, normalization="schmidt", r0=1, 
         )
 
     def trace_field_line(self, start_point, step_size, max_steps, closed_only=False):
@@ -51,11 +51,10 @@ class SHVisualizer:
 
         return field_line
 
-    def _get_field_lines_on_grid(self, grid_density, closed_only):
+    def _get_field_lines_on_grid(self, r, grid_density, closed_only):
         step_size = 0.01  # Step size
         max_steps = 1000  # Maximum number of steps to trace
 
-        r = 1.1
         lat_values = np.linspace(-89, 89, grid_density)
         lon_values = np.linspace(0, 360, grid_density)
 
@@ -76,12 +75,15 @@ class SHVisualizer:
         return field_lines
 
     def visualize_field_lines(
-        self, lim=OUTER_BOUNDARY, grid_density=10, closed_only=False
+        self, r=1.1, grid_density=10, closed_only=False, lim=OUTER_BOUNDARY
     ):
         field_lines = self._get_field_lines_on_grid(
-            grid_density, closed_only=closed_only
+            r, grid_density, closed_only=closed_only,
         )
 
+        self.plot(field_lines, lim)
+
+    def plot(self, field_lines, lim):
         fig = go.Figure()
 
         # Add field lines
@@ -129,14 +131,13 @@ class SHVisualizer:
         fig.show()
 
 
-def spherical_to_cartesian_vector(Br, Btheta, Bphi, theta_deg, phi_deg):
-    theta = np.pi / 2 - np.radians(theta_deg)
-    phi = np.radians(phi_deg)
+def spherical_to_cartesian_vector(Br, Btheta, Bphi, lat, lon):
+    colat = np.pi / 2 - lat
 
-    sinθ = np.sin(theta)
-    cosθ = np.cos(theta)
-    sinφ = np.sin(phi)
-    cosφ = np.cos(phi)
+    sinθ = np.sin(colat)
+    cosθ = np.cos(colat)
+    sinφ = np.sin(lon)
+    cosφ = np.cos(lon)
 
     Bx = Br * sinθ * cosφ + Btheta * cosθ * cosφ - Bphi * sinφ
     By = Br * sinθ * sinφ + Btheta * cosθ * sinφ + Bphi * cosφ
