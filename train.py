@@ -2,23 +2,20 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from dataset import CoronalFieldDatasetHDF, CoronalFieldDataset
+from dataset import CoronalFieldDatasetHDF
 from models import DiffusionModel
 from tqdm import tqdm
+
 
 # Hyperparameters
 input_dim = 8372
 hidden_dim = 8372
 output_dim = 8372
 batch_size = 16
-epochs = 3
+epochs = 5
 learning_rate = 0.0001
 num_workers = 0
-
-# Noise scheduling parameters
-initial_noise_level = 1.0
-final_noise_level = 0.1
-
+out_path_template = "diffusion_model_%d.pth"
 
 # Dataset and DataLoader
 train_dataset = CoronalFieldDatasetHDF("training_dataset.h5")
@@ -34,14 +31,6 @@ test_dataloader = DataLoader(
     num_workers=num_workers,
 )
 
-# train_root_dir = "/home/ubuntu/CoronalFieldExtrapolation/CoronalFieldExtrapolation_train/"
-# train_dataset = CoronalFieldDataset(train_root_dir)
-# train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-
-# test_root_dir = "/home/ubuntu/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test/"
-# test_dataset = CoronalFieldDataset(test_root_dir)
-# test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,)# Check for GPU
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Model, Loss, Optimizer
@@ -53,7 +42,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0)
 
 # Initialize TensorBoard writer
-writer = SummaryWriter(log_dir="runs/diffusion_model")
+writer = SummaryWriter(log_dir="runs/attention")
 
 
 # Training Loop
@@ -71,10 +60,9 @@ for epoch in range(epochs):
 
     for batch_idx, (batch, radio_flux) in progress_bar:
         # Calculate noise level for the current epoch
-        progress_frac = (len(train_dataloader) * epoch + batch_idx) / (len(train_dataloader) * epochs)
-        noise_level = initial_noise_level - progress_frac * (initial_noise_level - final_noise_level)
-
         inputs = batch.to(device)  # Move inputs to GPU if available
+        noise_level = torch.rand(inputs.shape[0], 1, device=device)
+
         radio_flux = radio_flux.to(device)  # Move radio flux to GPU if available
 
         mean = inputs.mean(dim=0)
@@ -96,34 +84,30 @@ for epoch in range(epochs):
 
         # Log batch loss to TensorBoard
         writer.add_scalar(
-            "Training Loss / Batch",
+            "Training / Batch Loss",
             loss.item(),
             epoch * len(train_dataloader) + batch_idx,
         )
 
-        writer.add_scalar(
-            "Training Loss / Denoising Ratio",
-            loss.item() / noise_level,
-            epoch * len(train_dataloader) + batch_idx,
-        )
-
-
         # Update progress bar with current loss
-        progress_bar.set_postfix(loss=loss.item(), noise_level=noise_level)
+        progress_bar.set_postfix(loss=loss.item())
 
     epoch_loss /= len(train_dataloader)  # Average loss for the epoch
 
     # Log epoch loss to TensorBoard
-    writer.add_scalar("Training Loss / Epoch", epoch_loss, epoch)
+    writer.add_scalar("Training / Epoch Loss", epoch_loss, epoch)
 
     print(f"Epoch [{epoch+1}/{epochs}], Training Loss: {epoch_loss:.4f}")
 
     # Evaluate on test set
     model.eval()
     test_loss = 0
+
     with torch.no_grad():
-        for (test_batch, radio_flux) in test_dataloader:
+        for batch_idx, (test_batch, radio_flux) in enumerate(test_dataloader):
             test_inputs = test_batch.to(device)
+            noise_level = torch.rand(test_inputs.shape[0], 1, device=device)
+
             radio_flux = radio_flux.to(device)
             mean = test_inputs.mean(dim=0)
             std = test_inputs.std(dim=0)
@@ -131,16 +115,18 @@ for epoch in range(epochs):
             test_inputs = (test_inputs - mean) / std  # Normalize inputs
 
             test_outputs = model(
-                test_inputs, noise_level=0, radio_flux=radio_flux
+                test_inputs, noise_level=noise_level, radio_flux=radio_flux
             )  # Use current noise level during testing
             test_loss += criterion(test_outputs, test_inputs).item()
 
     test_loss /= len(test_dataloader)
-    writer.add_scalar("Test Loss / Epoch", test_loss, epoch)
+    writer.add_scalar("Validation / Epoch Loss", test_loss, epoch)
     print(f"Epoch [{epoch+1}/{epochs}], Test Loss: {test_loss:.4f}")
 
-# Save the model
-torch.save(model.state_dict(), "diffusion_model.pth")
+    # Save the model
+    out_path = out_path_template % epoch + 1
+    torch.save(model.state_dict(), out_path)
+    print('Model checkpoint:', out_path)
 
 # Close the TensorBoard writer
 writer.close()

@@ -29,8 +29,10 @@ def sample(
 
     with torch.no_grad():
         model.eval()
-        for _ in range(nsteps):
-            input = model(input, torch.zeros(1).item(), radio_flux)
+        for i in range(nsteps):
+            # Linearly decreasing noise level from 1 to 0 over nsteps
+            noise_level = 1.0 - i / max(1, nsteps - 1)
+            input = model(input, noise_level, radio_flux)
             history.append(input.clone())
 
     history = [H.cpu().detach().squeeze().numpy() for H in history]
