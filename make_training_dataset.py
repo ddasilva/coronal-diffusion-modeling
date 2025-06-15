@@ -21,7 +21,9 @@ def main(root_dir, out_file):
     )
     df_radio.sort_values(by='times', inplace=True)
     df_radio.drop_duplicates(subset=['times'], keep='first', inplace=True)
-    df_radio['adjusted_flux_smoothed'] = df_radio['adjusted_flux'].rolling(window=27).mean()
+
+    # data is 3X/day
+    df_radio['adjusted_flux_smoothed'] = df_radio['adjusted_flux'].rolling(window=3*365).median()
     radio_fluxes = []
 
     # Load magnetic field data
@@ -51,7 +53,8 @@ def main(root_dir, out_file):
     radio_fluxes = np.array(radio_fluxes)
 
     # Normalize the radio fluxes
-    radio_fluxes = (radio_fluxes - np.min(radio_fluxes)) / np.max(radio_fluxes)
+    radio_fluxes = (radio_fluxes - np.min(radio_fluxes)) 
+    radio_fluxes /= np.max(radio_fluxes)
 
     print(items)
     print(radio_fluxes)
