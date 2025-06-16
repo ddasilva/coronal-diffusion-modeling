@@ -14,8 +14,10 @@ class SHVisualizer:
             coeffs_array, normalization="schmidt", r0=1, 
         )
 
-    def trace_field_line(self, start_point, step_size, max_steps, closed_only=False):
+    def trace_field_line(self, start_point, step_size, max_steps=100_000_000, closed_only=False):
         field_line = [start_point]
+        color = "black"
+    
 
         for _ in range(max_steps):
             r, lat, lon = cs.cart2sp(*field_line[-1])
@@ -41,15 +43,16 @@ class SHVisualizer:
             r = np.sqrt(x**2 + y**2 + z**2)
             if r > OUTER_BOUNDARY:
                 if closed_only:
-                    return None
+                    return None, None
                 else:
+                    color = "blue" if Br > 0 else "red"
                     break
             if r < 1:
                 break
 
             field_line.append((x, y, z))
 
-        return field_line
+        return field_line, color
 
     def _get_field_lines_on_grid(self, r, grid_density, closed_only):
         step_size = 0.01  # Step size
@@ -59,42 +62,44 @@ class SHVisualizer:
         lon_values = np.linspace(0, 360, grid_density)
 
         field_lines = []
+        colors = []
         for lat_deg in lat_values:
             for lon_deg in lon_values:
                 for dir in [-1, 1]:
                     start_point = cs.sp2cart(
                         r, np.deg2rad(lat_deg), np.deg2rad(lon_deg)
                     )
-                    field_line = self.trace_field_line(
+                    field_line, color = self.trace_field_line(
                         start_point, dir * step_size, max_steps, closed_only=closed_only
                     )
 
                     if field_line is not None:
                         field_lines.append(np.array(field_line))
+                        colors.append(color)
 
-        return field_lines
+        return field_lines, colors
 
     def visualize_field_lines(
         self, r=1.1, grid_density=10, closed_only=False, lim=OUTER_BOUNDARY
     ):
-        field_lines = self._get_field_lines_on_grid(
+        field_lines, colors = self._get_field_lines_on_grid(
             r, grid_density, closed_only=closed_only,
         )
 
-        self.plot(field_lines, lim)
+        self.plot(field_lines, colors, lim)
 
-    def plot(self, field_lines, lim):
+    def plot(self, field_lines, colors, lim):
         fig = go.Figure()
 
         # Add field lines
-        for field_line in field_lines:
+        for field_line, color in zip(field_lines, colors):
             fig.add_trace(
                 go.Scatter3d(
                     x=field_line[:, 0],
                     y=field_line[:, 1],
                     z=field_line[:, 2],
                     mode="lines",
-                    line=dict(width=2, color="black"),
+                    line=dict(width=2, color=color),
                 )
             )
 
