@@ -1,0 +1,9 @@
+torch
+astropy
+tqdm
+ai.cs
+matplotlib
+plotly
+pyshtools
+scipy
+numpy
