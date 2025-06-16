@@ -43,10 +43,11 @@ def main(root_dir, out_file):
 
         for G, H in enumerate_variations(file):
             items.append(
-                np.array(
-                    [G[np.tril_indices(G.shape[0])], H[np.tril_indices(H.shape[0])]]
+                np.concatenate(
+                    [G[np.tril_indices(G.shape[0])], H[1:,1:][np.tril_indices(H.shape[0]-1)]]
                 ).flatten()
             )
+
             radio_fluxes.append(radio_flux)
 
     items = np.array(items)

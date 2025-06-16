@@ -33,11 +33,8 @@ class DiffusionModel(nn.Module):
         else:
             self.residual_proj = nn.Identity()
 
-    def forward(self, x, noise_level, radio_flux=None):
+    def forward(self, noisy_x, noise_level, radio_flux=None):
         # Add noise to the input (forward process)
-        noise = torch.normal(mean=torch.zeros_like(noise_level), std=noise_level).to(x.device)
-        noisy_x = x + noise
-
         # First layer
         out = self.input_layer(noisy_x)
         out = self.bn1(out)
