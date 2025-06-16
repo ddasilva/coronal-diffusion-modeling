@@ -9,6 +9,9 @@ class DiffusionModel(nn.Module):
         self.input_layer = nn.Linear(input_dim, hidden_dim)
         self.ln1 = nn.LayerNorm(hidden_dim)
         self.act1 = nn.LeakyReLU(0.1)
+        self.hidden2 = nn.Linear(hidden_dim, hidden_dim)
+        self.ln2 = nn.LayerNorm(hidden_dim)
+        self.act2 = nn.LeakyReLU(0.1)
         self.final = nn.Linear(hidden_dim, output_dim)
         self.context_proj = nn.Linear(1, hidden_dim)
         self.noise_embed = nn.Linear(1, hidden_dim)        
@@ -34,5 +37,8 @@ class DiffusionModel(nn.Module):
         if radio_flux is not None:
             context = self.context_proj(radio_flux)
             out = out + context
+        out = self.hidden2(out)
+        out = self.ln2(out)
+        out = self.act2(out)
         out = self.final(out)
         return out

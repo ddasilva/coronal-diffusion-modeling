@@ -10,6 +10,8 @@ import h5py
 import pandas as pd
 from matplotlib.dates import date2num
 
+DELTA_ROT = 5
+
 
 def main(root_dir, out_file):
     # Load the radio flux data
@@ -24,12 +26,15 @@ def main(root_dir, out_file):
 
     # data is 3X/day
     df_radio['adjusted_flux_smoothed'] = df_radio['adjusted_flux'].rolling(window=3*365).median()
-    radio_fluxes = []
 
     # Load magnetic field data
     files = glob.glob(f"{root_dir}/*R000*.fits")
     files.sort()
-    items = []
+
+    items = np.zeros((len(files)* 360 // DELTA_ROT, 8281))
+    radio_fluxes = np.zeros((len(files)* 360 // DELTA_ROT,))
+
+    counter = 0
 
     for file in tqdm.tqdm(files, desc="Processing files"):
         time = datetime.datetime.strptime(
@@ -42,18 +47,13 @@ def main(root_dir, out_file):
         ))
 
         for G, H in enumerate_variations(file):
-            import pdb
-            pdb.set_trace()
-            items.append(
+            items[counter] = (
                 np.concatenate(
                     [G[np.tril_indices(G.shape[0])], H[1:,1:][np.tril_indices(H.shape[0]-1)]]
                 ).flatten()
             )
-
-            radio_fluxes.append(radio_flux)
-
-    items = np.array(items)
-    radio_fluxes = np.array(radio_fluxes)
+            radio_fluxes[counter] = radio_flux
+            counter += 1
 
     # Normalize the radio fluxes
     radio_fluxes = (radio_fluxes - np.min(radio_fluxes)) 
@@ -83,7 +83,7 @@ def enumerate_variations(file_path):
         coeffs_array, normalization="schmidt", r0=1
     )
 
-    for rot in range(15, 360, 15):
+    for rot in range(DELTA_ROT, 360, DELTA_ROT):
         rot_coeffs = coeffs.copy().rotate(alpha=rot, beta=0, gamma=0, degrees=True)
 
         yield rot_coeffs.coeffs[0], rot_coeffs.coeffs[1]

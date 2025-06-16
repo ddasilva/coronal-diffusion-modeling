@@ -12,10 +12,10 @@ input_dim = 8281
 hidden_dim = 8281
 output_dim = 8281
 batch_size = 128
-epochs = 20
+epochs = 50
 learning_rate = 0.0001
 num_workers = 0
-run_name = "deeper-mlp"
+run_name = "deeper-mlp-two-hidden-layers"
 out_path_template = f"checkpoints/{run_name}_%d.pth"
 
 # Dataset and DataLoader
@@ -42,6 +42,8 @@ with open('scalers.json') as fh:
 inputs_mean = torch.tensor(scalers["mean"]).float().to(device)
 inputs_std = torch.tensor(scalers["std"]).float().to(device)
 inputs_mean_abs = torch.tensor(scalers["mean_abs"]).float().to(device)
+inputs_mean_abs[inputs_mean_abs < 1e-3] = 1e-3 # avoid numerical issues
+
 # Model, Loss, Optimizer
 model = DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
 #criterion = torch.nn.MSELoss().to(device)
@@ -56,7 +58,6 @@ writer = SummaryWriter(log_dir=f"runs/{run_name}")
 
 def criterion(pred, target, weights):
     w = weights / weights.sum()
-
     return torch.sum(w * (pred - target) ** 2, dim=1).mean()
 
 
@@ -140,7 +141,7 @@ for epoch in range(epochs):
 
     test_loss /= len(test_dataloader)
 
-    writer.add_scalar("Validation / Epoch Loss", loss, epoch)
+    writer.add_scalar("Validation / Epoch Loss", test_loss, epoch)
     print(f"Epoch [{epoch+1}/{epochs}], Test Loss: {test_loss:.4f}")
 
     # Save the model
