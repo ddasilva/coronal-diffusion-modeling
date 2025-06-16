@@ -58,7 +58,7 @@ def sample(
         H = np.zeros((nmax + 1, nmax + 1))
         Htemp = np.zeros((nmax, nmax))
 
-        cutoff = np.tril_indices(nmax + 1).size
+        cutoff = np.tril_indices(nmax + 1)[0].size
 
         G[np.tril_indices(nmax + 1)] = input_np[:cutoff]
         Htemp[np.tril_indices(nmax)] = input_np[cutoff:]

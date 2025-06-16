@@ -42,6 +42,8 @@ def main(root_dir, out_file):
         ))
 
         for G, H in enumerate_variations(file):
+            import pdb
+            pdb.set_trace()
             items.append(
                 np.concatenate(
                     [G[np.tril_indices(G.shape[0])], H[1:,1:][np.tril_indices(H.shape[0]-1)]]

@@ -15,7 +15,7 @@ batch_size = 128
 epochs = 20
 learning_rate = 0.0001
 num_workers = 0
-run_name = "predict-noise"
+run_name = "deeper-mlp"
 out_path_template = f"checkpoints/{run_name}_%d.pth"
 
 # Dataset and DataLoader
@@ -39,14 +39,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 with open('scalers.json') as fh:
     scalers = json.load(fh)
 
-ipnuts_mean = scalers["mean"]
-inputs_std = scalers["std"]
-inputs_mean = torch.tensor(ipnuts_mean).float().to(device)
-inputs_std = torch.tensor(inputs_std).float().to(device)
-
+inputs_mean = torch.tensor(scalers["mean"]).float().to(device)
+inputs_std = torch.tensor(scalers["std"]).float().to(device)
+inputs_mean_abs = torch.tensor(scalers["mean_abs"]).float().to(device)
 # Model, Loss, Optimizer
 model = DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
-criterion = torch.nn.MSELoss().to(device)
+#criterion = torch.nn.MSELoss().to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # Add a learning rate scheduler
@@ -54,6 +52,12 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # Initialize TensorBoard writer
 writer = SummaryWriter(log_dir=f"runs/{run_name}")
+
+
+def criterion(pred, target, weights):
+    w = weights / weights.sum()
+
+    return torch.sum(w * (pred - target) ** 2, dim=1).mean()
 
 
 # Training Loop
@@ -69,25 +73,28 @@ for epoch in range(epochs):
         desc=f"Epoch {epoch+1}/{epochs}",
     )
 
-    for batch_idx, (batch, radio_flux) in progress_bar:
-        # Calculate noise level for the current epoch
-        inputs = batch.to(device)  # Move inputs to GPU if available
-        inputs = (inputs - inputs_mean) / inputs_std # Normalize inputs
+    for batch_idx, (inputs, radio_flux) in progress_bar:
+        # Move inputs to GPU if available
+        inputs = inputs.to(device)
+        radio_flux = radio_flux.to(device)  
 
+        # Normalize inputs
+        inputs = (inputs - inputs_mean) / inputs_std
+
+        # Calculate Noise
         noise_level = torch.rand(inputs.shape[0], device=device)
         noise_repeated = noise_level.repeat(inputs.shape[1], 1).T
         true_noise = torch.normal(mean=torch.zeros_like(noise_repeated), std=noise_repeated).to(device)        
         noisey_inputs = inputs + true_noise  # Ndd noise
 
-        radio_flux = radio_flux.to(device)  
-
+        # Call model, loss, and backpropagation
         optimizer.zero_grad()
         pred_noise = model(noisey_inputs, noise_level=noise_level, radio_flux=radio_flux)
-        loss = criterion(pred_noise, true_noise)  # Train to reconstruct noise
+        loss = criterion(pred_noise, true_noise, inputs_mean_abs)  # Train to reconstruct noise
         loss.backward()
 
         # Clip gradients to prevent exploding gradients
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         # Update model parameter
         optimizer.step()
@@ -95,23 +102,14 @@ for epoch in range(epochs):
         # Add loss to running loss
         epoch_loss += loss.item()
 
-        # Log batch loss to TensorBoard
-        loss_recon = criterion(noisey_inputs - pred_noise, inputs)  # Train to reconstruct noise
-
         writer.add_scalar(
             "Training / Batch Loss",
-            loss_recon.item(),
-            epoch * len(train_dataloader) + batch_idx,
-        )
-
-        writer.add_scalar(
-            "Training / Batch Loss (Noise Delta)",
             loss.item(),
             epoch * len(train_dataloader) + batch_idx,
         )
 
         # Update progress bar with current loss
-        progress_bar.set_postfix(loss=loss.item(), reconstruct_loss=loss_recon.item())
+        progress_bar.set_postfix(loss=loss.item())
 
     epoch_loss /= len(train_dataloader)  # Average loss for the epoch
 
@@ -123,7 +121,6 @@ for epoch in range(epochs):
     # Evaluate on test set
     model.eval()
     test_loss = 0
-    test_loss_recon = 0
 
     with torch.no_grad():
         for batch_idx, (inputs, radio_flux) in enumerate(test_dataloader):
@@ -137,16 +134,13 @@ for epoch in range(epochs):
             inputs = (inputs - inputs_mean) / inputs_std  # Normalize inputs
             noise_inputs = inputs + true_noise  # Add noise to inputs
 
-            pred_noise = model(
-                noise_inputs, noise_level=noise_level, radio_flux=radio_flux
-            ) 
+            pred_noise = model(noise_inputs, noise_level=noise_level, radio_flux=radio_flux) 
 
-            test_loss += criterion(pred_noise, true_noise).item()
-            test_loss_recon += criterion(noise_inputs, inputs).item()
+            test_loss += criterion(pred_noise, true_noise, inputs_mean_abs).item()
 
     test_loss /= len(test_dataloader)
-    writer.add_scalar("Validation / Epoch Loss", test_loss_recon, epoch)
-    writer.add_scalar("Validation / Epoch Loss (Noise Delta)", test_loss, epoch)
+
+    writer.add_scalar("Validation / Epoch Loss", loss, epoch)
     print(f"Epoch [{epoch+1}/{epochs}], Test Loss: {test_loss:.4f}")
 
     # Save the model
