@@ -4,7 +4,7 @@ import numpy as np
 
 
 def main():
-    hdf = h5py.File("training_dataset.h5")
+    hdf = h5py.File("test_dataset.h5")
     X = hdf["X"][:]
     hdf.close()
 

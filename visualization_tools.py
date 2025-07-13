@@ -2,16 +2,17 @@ import numpy as np
 import pyshtools
 import plotly.graph_objects as go
 from ai import cs
+from matplotlib import pyplot as plt
 
 OUTER_BOUNDARY = 5
 
 
 class SHVisualizer:
 
-    def __init__(self, G, H):
+    def __init__(self, G, H, normalization="ortho"):
         coeffs_array = np.array([G, H])
         self.coeffs = pyshtools.SHMagCoeffs.from_array(
-            coeffs_array, normalization="schmidt", r0=1, 
+            coeffs_array, normalization=normalization, r0=1,
         )
 
     def trace_field_line(self, start_point, step_size, max_steps=100_000_000, closed_only=False):
@@ -134,6 +135,27 @@ class SHVisualizer:
             margin=dict(l=0, r=0, b=0, t=0),
         )
         fig.show()
+
+    def plot_magnetogram(self, r=1, lim=5):
+        result, lat, lon = self.get_magnetogram(r)
+        Br = result[:, 0].reshape(lat.shape) * 1e-5
+
+        plt.figure(figsize=(10, 5))
+        plt.pcolor(lon, lat, Br, cmap="Grays", vmax=lim, vmin=-lim)
+        plt.colorbar().set_label('Br (T)')
+        plt.title(f'$B_r$ at r={r} $R_\\odot$', fontsize=18)
+
+    def get_magnetogram(self, r):
+        # Get magnetogram data
+        lat_axis = np.arange(-89, 90, 1)
+        lon_axis = np.arange(0, 360, 1)
+        lat, lon = np.meshgrid(lat_axis, lon_axis, indexing="ij")
+
+        result = np.array(
+            self.coeffs.expand(r=[r] * lat.size, lat=lat.flatten(), lon=lon.flatten(), degrees=True)
+        ).squeeze()
+ 
+        return result, lat, lon
 
 
 def spherical_to_cartesian_vector(Br, Btheta, Bphi, lat, lon):

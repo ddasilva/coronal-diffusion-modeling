@@ -7,3 +7,4 @@ plotly
 pyshtools
 scipy
 numpy
+torch-harmonics

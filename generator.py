@@ -7,7 +7,8 @@ import json
 def sample(
     weights_file="diffusion_model.pth",
     nsteps=50,
-    radio_flux=1,
+    radio_flux=0,
+    model=None,
     output_dim=8281,
     input_dim=8281,
     hidden_dim=8281,
@@ -18,8 +19,9 @@ def sample(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Run denoising diffusion process nsteps times
-    model = models.DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
-    model.load_state_dict(torch.load(weights_file, map_location=device))
+    if model is None:
+        model = models.DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
+        model.load_state_dict(torch.load(weights_file, map_location=device))
 
     input = torch.normal(mean=0, std=1, size=(1, output_dim))
     input = input.float().to(device)

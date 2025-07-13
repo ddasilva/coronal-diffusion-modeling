@@ -76,12 +76,13 @@ def enumerate_variations(file_path):
     G = sph_data[0, :, :].T
     H = sph_data[1, :, :].T
 
-    yield G, H
-
     coeffs_array = np.array([G, H])
     coeffs = pyshtools.SHMagCoeffs.from_array(
         coeffs_array, normalization="schmidt", r0=1
     )
+    coeffs = coeffs.convert(normalization='ortho')
+
+    yield coeffs.coeffs[0], coeffs.coeffs[1]
 
     for rot in range(DELTA_ROT, 360, DELTA_ROT):
         rot_coeffs = coeffs.copy().rotate(alpha=rot, beta=0, gamma=0, degrees=True)
