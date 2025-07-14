@@ -168,7 +168,7 @@ class BrModel(nn.Module):
 
 
 class DiffusionModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim, output_dim, attn_embed_dim=None):
         super(DiffusionModel, self).__init__()
         self.input_layer = nn.Linear(input_dim, hidden_dim)
         self.ln1 = nn.LayerNorm(hidden_dim)
@@ -176,15 +176,20 @@ class DiffusionModel(nn.Module):
         self.hidden2 = nn.Linear(hidden_dim, hidden_dim)
         self.ln2 = nn.LayerNorm(hidden_dim)
         self.act2 = nn.LeakyReLU(0.1)
-        self.final = nn.Linear(hidden_dim, output_dim)
         self.context_proj = nn.Linear(1, hidden_dim)
-        self.noise_embed = nn.Linear(1, hidden_dim)        
+        self.noise_embed = nn.Linear(1, hidden_dim)
         if input_dim != hidden_dim:
             self.residual_proj = nn.Linear(input_dim, hidden_dim)
         else:
             self.residual_proj = nn.Identity()
+        # Attention layer
+        if attn_embed_dim is None:
+            attn_embed_dim = hidden_dim // 2
+        self.to_attn = nn.Linear(hidden_dim, attn_embed_dim)
+        self.attn = nn.MultiheadAttention(embed_dim=attn_embed_dim, num_heads=2, batch_first=True)
+        self.norm_attn = nn.LayerNorm(attn_embed_dim)
+        self.final = nn.Linear(attn_embed_dim, output_dim)
 
-    
     def forward(self, noisy_x, noise_level, radio_flux=None):
         out = self.input_layer(noisy_x)
         out = self.ln1(out)
@@ -205,6 +210,10 @@ class DiffusionModel(nn.Module):
         out = self.hidden2(out)
         out = self.ln2(out)
         out = self.act2(out)
+        # Attention block
+        attn_in = self.to_attn(out).unsqueeze(1)  # [batch, seq=1, attn_embed_dim]
+        attn_out, _ = self.attn(attn_in, attn_in, attn_in)
+        attn_out = self.norm_attn(attn_out + attn_in)
+        out = attn_out.squeeze(1)
         out = self.final(out)
-
         return out

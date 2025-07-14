@@ -20,12 +20,13 @@ hidden_dim = 8281
 output_dim = 8281
 batch_size = 128
 epochs = 50
-learning_rate = 0.00001
+learning_rate = 0.0001
 num_workers = 0
 run_name = "br-experiment"
-br_lambda = 1e-7
+br_lambda = 1e-6
 out_path_template = f"checkpoints/{run_name}_%d.pth"
 include_br = True
+include_harmonics = False
 plot_br = True
 plot_br_freq = 100
 
@@ -76,13 +77,8 @@ def harmonics_criterian(pred, target, weights):
 
 def br_criterion(pred_br, target_br, br_weights):
     w = br_weights / br_weights.sum()
-    # Reshape w to (1, 7, 1, 1) for broadcasting over pred_br and target_br
     w = w.view(1, -1, 1, 1)
-
-    try:
-        return torch.sum(w * (pred_br - target_br) ** 2, dim=1).mean()
-    except:
-        import ipdb; ipdb.set_trace()
+    return torch.sum(w * (pred_br - target_br) ** 2, dim=1).mean()
 
 
 # Training Loop
@@ -107,17 +103,20 @@ for epoch in range(epochs):
         inputs = (orig_coeffs - inputs_mean) / inputs_std
 
         # Calculate Noise
-        noise_level = torch.rand(inputs.shape[0], device=device)
+        noise_level = torch.rand(inputs.shape[0], device=device) 
         noise_repeated = noise_level.repeat(inputs.shape[1], 1).T
         true_noise = torch.normal(mean=torch.zeros_like(noise_repeated), std=noise_repeated).to(device)        
-        noisey_inputs = inputs + true_noise  # Ndd noise
+        noisey_inputs = inputs + true_noise  # Add noise
 
         # Call model, loss, and backpropagation
         optimizer.zero_grad()
         pred_noise = model(noisey_inputs, noise_level=noise_level, radio_flux=radio_flux)
 
-        harmonics_loss = harmonics_criterian(pred_noise, true_noise, harmonic_weights)  # Train to reconstruct noise
-
+        if include_harmonics:
+            harmonics_loss = harmonics_criterian(pred_noise, true_noise, harmonic_weights)  # Train to reconstruct noise
+        else:
+            harmonics_loss = torch.tensor(0)
+        
         if include_br:
             pred_coeffs = (orig_coeffs - pred_noise) * inputs_std + inputs_mean
             pred_br = br_model(pred_coeffs)
