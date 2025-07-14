@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from dataset import CoronalFieldDatasetHDF
-from models import DiffusionModel, MagnetogramModel
+from models import DiffusionModel, BrModel
 from tqdm import tqdm
 import json
 from io import BytesIO
@@ -20,11 +20,14 @@ hidden_dim = 8281
 output_dim = 8281
 batch_size = 128
 epochs = 50
-learning_rate = 0.0001
+learning_rate = 0.00001
 num_workers = 0
-run_name = "magnetogram"
-magnetogram_lambda = 1e-7
+run_name = "br-experiment"
+br_lambda = 1e-7
 out_path_template = f"checkpoints/{run_name}_%d.pth"
+include_br = True
+plot_br = True
+plot_br_freq = 100
 
 # Dataset and DataLoader
 train_dataset = CoronalFieldDatasetHDF("training_dataset.h5")
@@ -50,17 +53,17 @@ with open('scalers.json') as fh:
 inputs_mean = torch.tensor(scalers["mean"]).float().to(device)
 inputs_std = torch.tensor(scalers["std"]).float().to(device)
 inputs_mean_abs = torch.tensor(scalers["mean_abs"]).float().to(device)
-inputs_mean_abs[inputs_mean_abs < 1e-3] = 1e-3 # avoid numerical issues
 
 # Model, Loss, Optimizer
 model = DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
-magnetogram_model = MagnetogramModel().to(device)
-
-
+br_model = BrModel().to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # Add a learning rate scheduler
 #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0)
+
+harmonic_weights = 1.0 / (inputs_std + 1e-6)
+br_weights = torch.tensor(br_model.default_r, device=device) ** (-3)  # Inverse cube law for Br
 
 # Initialize TensorBoard writer
 writer = SummaryWriter(log_dir=f"runs/{run_name}")
@@ -71,10 +74,15 @@ def harmonics_criterian(pred, target, weights):
     return torch.sum(w * (pred - target) ** 2, dim=1).mean()
 
 
-def magnetogram_criterion(pred_magnetogram, target_magnetogram, min_weight=10):
-    #weights = torch.clamp(torch.abs(target_magnetogram), min=min_weight)
-    #w = weights / weights.sum()
-    return torch.sum((pred_magnetogram - target_magnetogram) ** 2, dim=1).mean()
+def br_criterion(pred_br, target_br, br_weights):
+    w = br_weights / br_weights.sum()
+    # Reshape w to (1, 7, 1, 1) for broadcasting over pred_br and target_br
+    w = w.view(1, -1, 1, 1)
+
+    try:
+        return torch.sum(w * (pred_br - target_br) ** 2, dim=1).mean()
+    except:
+        import ipdb; ipdb.set_trace()
 
 
 # Training Loop
@@ -108,17 +116,20 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         pred_noise = model(noisey_inputs, noise_level=noise_level, radio_flux=radio_flux)
 
-        harmonics_loss = harmonics_criterian(pred_noise, true_noise, inputs_mean_abs)  # Train to reconstruct noise
+        harmonics_loss = harmonics_criterian(pred_noise, true_noise, harmonic_weights)  # Train to reconstruct noise
 
-        pred_coeffs = (orig_coeffs - pred_noise) * inputs_std + inputs_mean
-        pred_magnetogram = magnetogram_model(pred_coeffs)
-        target_magnetogram = magnetogram_model(orig_coeffs)
-        magnetogram_loss = magnetogram_lambda * magnetogram_criterion(pred_magnetogram, target_magnetogram)  # Add magnetogram loss
+        if include_br:
+            pred_coeffs = (orig_coeffs - pred_noise) * inputs_std + inputs_mean
+            pred_br = br_model(pred_coeffs)
+            target_br = br_model(orig_coeffs)
+            br_loss = br_lambda * br_criterion(pred_br, target_br, br_weights)  # Add br loss
+        else:
+            br_loss = torch.tensor(0)
 
-        if batch_idx > 0 and batch_idx % 100 == 0:
+        if plot_br and batch_idx > 0 and batch_idx % plot_br_freq == 0:
             for radio_flux, subtitle in zip([0, 1], ["Solar Minimum", "Solar Maximum"]):
                 with torch.no_grad():
-                    G, H = gen.sample(model=model, nsteps=10, radio_flux=radio_flux)
+                    G, H = gen.sample(model=model, nsteps=25, radio_flux=radio_flux)
                 vis = vt.SHVisualizer(G, H)
                 vis.plot_magnetogram()
 
@@ -135,8 +146,8 @@ for epoch in range(epochs):
                     epoch * len(train_dataloader) + batch_idx,
                 )
 
-        loss = harmonics_loss + magnetogram_lambda * magnetogram_loss
-        #loss = magnetogram_loss
+        loss = harmonics_loss + br_lambda * br_loss
+        
         loss.backward()
 
         # Clip gradients to prevent exploding gradients
@@ -162,12 +173,12 @@ for epoch in range(epochs):
 
         writer.add_scalar(
             "Training / Magnetogram Loss",
-            magnetogram_lambda * magnetogram_loss.item(),
+            br_lambda * br_loss.item(),
             epoch * len(train_dataloader) + batch_idx,
         )
 
         # Update progress bar with current loss
-        progress_bar.set_postfix(loss=loss.item(), harmonic_loss=harmonics_loss.item(), magnetogram_loss=magnetogram_lambda*magnetogram_loss.item())
+        progress_bar.set_postfix(loss=loss.item(), harmonic_loss=harmonics_loss.item(), magnetogram_loss=br_lambda*br_loss.item())
 
     epoch_loss /= len(train_dataloader)  # Average loss for the epoch
 
@@ -193,8 +204,7 @@ for epoch in range(epochs):
             noise_inputs = inputs + true_noise  # Add noise to inputs
 
             pred_noise = model(noise_inputs, noise_level=noise_level, radio_flux=radio_flux) 
-
-            test_loss += harmonics_criterian(pred_noise, true_noise, inputs_mean_abs).item()
+            test_loss += harmonics_criterian(pred_noise, true_noise, harmonic_weights).item()
 
     test_loss /= len(test_dataloader)
 

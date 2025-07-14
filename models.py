@@ -4,64 +4,6 @@ import numpy as np
 import torch_harmonics as th
 import math
 
-def fix_coeffs(G, H):
-    """
-    Convert real spherical harmonics coefficients (G and H) to complex form (C and S).
-    
-    Args:
-        G (torch.Tensor): Real spherical harmonics coefficients G_l^m
-                         Shape: (max_degree + 1, max_degree + 1) or flattened
-        H (torch.Tensor): Real spherical harmonics coefficients H_l^m  
-                         Shape: (max_degree + 1, max_degree + 1) or flattened
-    
-    Returns:
-        tuple: (C, S) where:
-            C (torch.Tensor): Complex coefficients for positive m
-            S (torch.Tensor): Complex coefficients for negative m
-    
-    Note:
-        The conversion follows the standard convention where:
-        - For m > 0: C_l^m = (G_l^m - i*H_l^m) / sqrt(2)
-        - For m < 0: S_l^|m| = (G_l^|m| + i*H_l^|m|) / sqrt(2)  
-        - For m = 0: C_l^0 = G_l^0 (purely real)
-    """
-    
-    # Ensure inputs are torch tensors
-    if not isinstance(G, torch.Tensor):
-        G = torch.tensor(G, dtype=torch.float32)
-    if not isinstance(H, torch.Tensor):
-        H = torch.tensor(H, dtype=torch.float32)
-    
-    # Get the maximum degree from the shape
-    if G.dim() == 2:
-        max_degree = G.shape[0] - 1
-    else:
-        # Assume flattened format and infer max degree
-        max_degree = int(np.sqrt(len(G))) - 1
-        G = G.reshape(max_degree + 1, max_degree + 1)
-        H = H.reshape(max_degree + 1, max_degree + 1)
-    
-    # Initialize complex coefficient arrays
-    C = torch.zeros((max_degree + 1, max_degree + 1), dtype=torch.complex64)
-    S = torch.zeros((max_degree + 1, max_degree + 1), dtype=torch.complex64)
-    
-    sqrt2 = torch.sqrt(torch.tensor(2.0))
-    
-    for l in range(max_degree + 1):
-        for m in range(l + 1):
-            if m == 0:
-                # For m = 0, coefficient is purely real
-                C[l, 0] = G[l, 0].to(torch.complex64)
-            else:
-                # For m > 0: C_l^m = (G_l^m - i*H_l^m) / sqrt(2)
-                C[l, m] = (G[l, m] - 1j * H[l, m]) / sqrt2
-                
-                # For m < 0: S_l^m = (G_l^m + i*H_l^m) / sqrt(2)
-                # Store at positive index for convenience
-                S[l, m] = (G[l, m] + 1j * H[l, m]) / sqrt2
-    
-    return C, S
-
 
 def fix_coeffs_batch(G, H):
     """
@@ -180,18 +122,22 @@ def fix_coeffs_batch_broadcast(G, H):
     return C, S
 
 
-class MagnetogramModel(nn.Module):
+class BrModel(nn.Module):
 
     def __init__(self):
-        super(MagnetogramModel, self).__init__()
+        super(BrModel, self).__init__()
 
         self.nlat = 180
         self.nlon = 360
         self.nmax = 90
         self.cutoff = np.tril_indices(self.nmax + 1)[0].size
+        self.default_r = [1.05, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5]
         self.isht = th.InverseRealSHT(self.nlat, self.nlon, grid='equiangular', norm='ortho', lmax=self.nmax + 1, mmax=self.nmax + 1)
 
-    def forward(self, out, r = 1.05):
+    def forward(self, out, r=None):
+        if r is None:
+            r = self.default_r
+        
         batch_size = out.shape[0]
         G = torch.zeros((batch_size, self.nmax + 1, self.nmax + 1)).to(out.device)
         H = torch.zeros((batch_size, self.nmax + 1, self.nmax + 1)).to(out.device)
@@ -206,14 +152,19 @@ class MagnetogramModel(nn.Module):
         G = G * scale
         H = H * scale
 
-        coeffs = fix_coeffs_batch(G, H)
+        base_coeffs = fix_coeffs_batch(G, H)
 
-        # Evaluate at r = 1.05
-        coeffs = coeffs * (1 / r**(n + 1))
+        # Evaluate at provided r
+        Br_list = []
 
-        magnetogram = self.isht(coeffs)
+        for r_value in r:
+            coeffs = base_coeffs * (1 / r_value**(n + 1))
+            Br = self.isht(coeffs)
+            Br_list.append(Br)
 
-        return magnetogram
+        Br_tensor = torch.stack(Br_list, dim=1)  # Shape: (batch_size, len(r), nlat, nlon)
+
+        return Br_tensor
 
 
 class DiffusionModel(nn.Module):

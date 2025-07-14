@@ -18,7 +18,6 @@ class SHVisualizer:
     def trace_field_line(self, start_point, step_size, max_steps=100_000_000, closed_only=False):
         field_line = [start_point]
         color = "black"
-    
 
         for _ in range(max_steps):
             r, lat, lon = cs.cart2sp(*field_line[-1])
@@ -136,7 +135,7 @@ class SHVisualizer:
         )
         fig.show()
 
-    def plot_magnetogram(self, r=1, lim=5):
+    def plot_magnetogram(self, r=1.05, lim=2.5):
         result, lat, lon = self.get_magnetogram(r)
         Br = result[:, 0].reshape(lat.shape) * 1e-5
 
