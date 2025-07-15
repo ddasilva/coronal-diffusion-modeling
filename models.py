@@ -4,102 +4,63 @@ import numpy as np
 import torch_harmonics as th
 import math
 
-
-class BrModel(nn.Module):
-
-    def __init__(self):
-        super(BrModel, self).__init__()
-
-        self.nlat = 180
-        self.nlon = 360
-        self.nmax = 90
-        self.cutoff = np.tril_indices(self.nmax + 1)[0].size
-        self.default_r = [1.05, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5]
-        self.isht = th.InverseRealSHT(self.nlat, self.nlon, grid='equiangular', norm='ortho', lmax=self.nmax + 1, mmax=self.nmax + 1)
-
-    def forward(self, out, r=None):
-        if r is None:
-            r = self.default_r
-        
-        batch_size = out.shape[0]
-        G = torch.zeros((batch_size, self.nmax + 1, self.nmax + 1)).to(out.device)
-        H = torch.zeros((batch_size, self.nmax + 1, self.nmax + 1)).to(out.device)
-
-        for i in range(batch_size):
-            G[i][np.tril_indices(self.nmax + 1)] = out[i, :self.cutoff]
-            H[i][1:, 1:][np.tril_indices(self.nmax)] = out[i, self.cutoff:]
-
-        # Scale coefficients
-        n = torch.arange(self.nmax + 1, dtype=torch.float32, device=out.device).view(-1, 1)
-        scale = (n + 1).repeat(1, self.nmax + 1)
-        G = G * scale
-        H = H * scale
-
-        base_coeffs = fix_coeffs_batch(G, H)
-
-        # Evaluate at provided r
-        Br_list = []
-
-        for r_value in r:
-            coeffs = base_coeffs * (1 / r_value**(n + 1))
-            Br = self.isht(coeffs)
-            Br_list.append(Br)
-
-        Br_tensor = torch.stack(Br_list, dim=1)  # Shape: (batch_size, len(r), nlat, nlon)
-
-        return Br_tensor
-
-
-class DiffusionModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, attn_embed_dim=None):
-        super(DiffusionModel, self).__init__()
-        self.input_layer = nn.Linear(input_dim, hidden_dim)
-        self.ln1 = nn.LayerNorm(hidden_dim)
-        self.act1 = nn.LeakyReLU(0.1)
-        self.hidden2 = nn.Linear(hidden_dim, hidden_dim)
-        self.ln2 = nn.LayerNorm(hidden_dim)
-        self.act2 = nn.LeakyReLU(0.1)
-        self.context_proj = nn.Linear(1, hidden_dim)
-        self.noise_embed = nn.Linear(1, hidden_dim)
-        if input_dim != hidden_dim:
-            self.residual_proj = nn.Linear(input_dim, hidden_dim)
-        else:
-            self.residual_proj = nn.Identity()
-        # Attention layer
-        if attn_embed_dim is None:
-            attn_embed_dim = hidden_dim // 2
-        self.to_attn = nn.Linear(hidden_dim, attn_embed_dim)
-        self.attn = nn.MultiheadAttention(embed_dim=attn_embed_dim, num_heads=2, batch_first=True)
-        self.norm_attn = nn.LayerNorm(attn_embed_dim)
-        self.final = nn.Linear(attn_embed_dim, output_dim)
-
-    def forward(self, noisy_x, noise_level, radio_flux=None):
-        out = self.input_layer(noisy_x)
-        out = self.ln1(out)
-        out = self.act1(out)
-        res = self.residual_proj(noisy_x)
-        out = out + res
-        # Noise embedding
-        if isinstance(noise_level, float) or len(noise_level.shape) == 0:
-            noise_level = torch.tensor([noise_level], dtype=out.dtype, device=out.device).repeat(out.shape[0], 1)
-        elif len(noise_level.shape) == 1:
-            noise_level = noise_level.unsqueeze(1)
-        noise_emb = self.noise_embed(noise_level)
-        out = out + noise_emb
-        # Context embedding
-        if radio_flux is not None:
-            context = self.context_proj(radio_flux)
-            out = out + context
-        out = self.hidden2(out)
-        out = self.ln2(out)
-        out = self.act2(out)
-        # Attention block
-        attn_in = self.to_attn(out).unsqueeze(1)  # [batch, seq=1, attn_embed_dim]
-        attn_out, _ = self.attn(attn_in, attn_in, attn_in)
-        attn_out = self.norm_attn(attn_out + attn_in)
-        out = attn_out.squeeze(1)
-        out = self.final(out)
-        return out
+def fix_coeffs(G, H):
+    """
+    Convert real spherical harmonics coefficients (G and H) to complex form (C and S).
+    
+    Args:
+        G (torch.Tensor): Real spherical harmonics coefficients G_l^m
+                         Shape: (max_degree + 1, max_degree + 1) or flattened
+        H (torch.Tensor): Real spherical harmonics coefficients H_l^m  
+                         Shape: (max_degree + 1, max_degree + 1) or flattened
+    
+    Returns:
+        tuple: (C, S) where:
+            C (torch.Tensor): Complex coefficients for positive m
+            S (torch.Tensor): Complex coefficients for negative m
+    
+    Note:
+        The conversion follows the standard convention where:
+        - For m > 0: C_l^m = (G_l^m - i*H_l^m) / sqrt(2)
+        - For m < 0: S_l^|m| = (G_l^|m| + i*H_l^|m|) / sqrt(2)  
+        - For m = 0: C_l^0 = G_l^0 (purely real)
+    """
+    
+    # Ensure inputs are torch tensors
+    if not isinstance(G, torch.Tensor):
+        G = torch.tensor(G, dtype=torch.float32)
+    if not isinstance(H, torch.Tensor):
+        H = torch.tensor(H, dtype=torch.float32)
+    
+    # Get the maximum degree from the shape
+    if G.dim() == 2:
+        max_degree = G.shape[0] - 1
+    else:
+        # Assume flattened format and infer max degree
+        max_degree = int(np.sqrt(len(G))) - 1
+        G = G.reshape(max_degree + 1, max_degree + 1)
+        H = H.reshape(max_degree + 1, max_degree + 1)
+    
+    # Initialize complex coefficient arrays
+    C = torch.zeros((max_degree + 1, max_degree + 1), dtype=torch.complex64)
+    S = torch.zeros((max_degree + 1, max_degree + 1), dtype=torch.complex64)
+    
+    sqrt2 = torch.sqrt(torch.tensor(2.0))
+    
+    for l in range(max_degree + 1):
+        for m in range(l + 1):
+            if m == 0:
+                # For m = 0, coefficient is purely real
+                C[l, 0] = G[l, 0].to(torch.complex64)
+            else:
+                # For m > 0: C_l^m = (G_l^m - i*H_l^m) / sqrt(2)
+                C[l, m] = (G[l, m] - 1j * H[l, m]) / sqrt2
+                
+                # For m < 0: S_l^m = (G_l^m + i*H_l^m) / sqrt(2)
+                # Store at positive index for convenience
+                S[l, m] = (G[l, m] + 1j * H[l, m]) / sqrt2
+    
+    return C, S
 
 
 def fix_coeffs_batch(G, H):
@@ -217,3 +178,91 @@ def fix_coeffs_batch_broadcast(G, H):
     S = torch.where(m_positive_mask.unsqueeze(0), complex_transform_s, S)
     
     return C, S
+
+
+class MagneticModel(nn.Module):
+
+    def __init__(self):
+        super(MagneticModel, self).__init__()
+
+        self.nlat = 180
+        self.nlon = 360
+        self.nmax = 90
+        self.cutoff = np.tril_indices(self.nmax + 1)[0].size
+        self.isht = th.InverseRealSHT(self.nlat, self.nlon, grid='equiangular', norm='ortho', lmax=self.nmax + 1, mmax=self.nmax + 1)
+        self.default_r = np.arange(1.0, 2.6, .1)
+
+    def forward(self, out, r=None, potential=True):
+        if r is None:
+            r = self.default_r
+
+        batch_size = out.shape[0]
+        G = torch.zeros((batch_size, self.nmax + 1, self.nmax + 1)).to(out.device)
+        H = torch.zeros((batch_size, self.nmax + 1, self.nmax + 1)).to(out.device)
+
+        for i in range(batch_size):
+            G[i][np.tril_indices(self.nmax + 1)] = out[i, :self.cutoff]
+            H[i][1:, 1:][np.tril_indices(self.nmax)] = out[i, self.cutoff:]
+
+        # Scale coefficients
+        n = torch.arange(self.nmax + 1, dtype=torch.float32, device=out.device).view(-1, 1)
+        
+        if not potential:
+            # Br scaling
+            scale = (n + 1).repeat(1, self.nmax + 1)
+            G = G * scale
+            H = H * scale
+
+        base_coeffs = fix_coeffs_batch(G, H)
+        output_list = []
+
+        for rvalue in r:
+            coeffs = base_coeffs * (1 / rvalue**(n + 1))
+            output_list.append(self.isht(coeffs))
+
+        output = torch.stack(output_list, dim=1)  # Shape: (batch_size, len(r), nlat, nlon)
+
+        return output
+
+
+class DiffusionModel(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(DiffusionModel, self).__init__()
+        self.input_layer = nn.Linear(input_dim, hidden_dim)
+        self.ln1 = nn.LayerNorm(hidden_dim)
+        self.act1 = nn.LeakyReLU(0.1)
+        self.hidden2 = nn.Linear(hidden_dim, hidden_dim)
+        self.ln2 = nn.LayerNorm(hidden_dim)
+        self.act2 = nn.LeakyReLU(0.1)
+        self.final = nn.Linear(hidden_dim, output_dim)
+        self.context_proj = nn.Linear(1, hidden_dim)
+        self.noise_embed = nn.Linear(1, hidden_dim)        
+        if input_dim != hidden_dim:
+            self.residual_proj = nn.Linear(input_dim, hidden_dim)
+        else:
+            self.residual_proj = nn.Identity()
+
+    
+    def forward(self, noisy_x, noise_level, radio_flux=None):
+        out = self.input_layer(noisy_x)
+        out = self.ln1(out)
+        out = self.act1(out)
+        res = self.residual_proj(noisy_x)
+        out = out + res
+        # Noise embedding
+        if isinstance(noise_level, float) or len(noise_level.shape) == 0:
+            noise_level = torch.tensor([noise_level], dtype=out.dtype, device=out.device).repeat(out.shape[0], 1)
+        elif len(noise_level.shape) == 1:
+            noise_level = noise_level.unsqueeze(1)
+        noise_emb = self.noise_embed(noise_level)
+        out = out + noise_emb
+        # Context embedding
+        if radio_flux is not None:
+            context = self.context_proj(radio_flux)
+            out = out + context
+        out = self.hidden2(out)
+        out = self.ln2(out)
+        out = self.act2(out)
+        out = self.final(out)
+
+        return out

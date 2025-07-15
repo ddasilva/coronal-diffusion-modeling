@@ -2,11 +2,10 @@ import models
 import torch
 import numpy as np
 import json
-
+from constants import *
 
 def sample(
     weights_file="diffusion_model.pth",
-    nsteps=50,
     radio_flux=0,
     model=None,
     output_dim=8281,
@@ -14,32 +13,21 @@ def sample(
     hidden_dim=8281,
     device=None,
     nmax=90,
+    sf=1,
+    n=20,
+    eta=0.0,
     return_history=False,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Run denoising diffusion process nsteps times
+    # Run deterministic diffusion process nsteps times
     if model is None:
         model = models.DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
         model.load_state_dict(torch.load(weights_file, map_location=device))
 
-    input = torch.normal(mean=0, std=1, size=(1, output_dim))
-    input = input.float().to(device)
     radio_flux = torch.from_numpy(np.array([radio_flux]).reshape(1, -1)).float().to(device)
-
-    history = [input.clone()]
-
-    with torch.no_grad():
-        model.eval()
-        for i in range(nsteps):
-            # Linearly decreasing noise level from 1 to 0 over nsteps
-            noise_level = torch.from_numpy(np.array([1.0 - i / max(1, nsteps - 1)])).float().to(device)
-            pred_noise = model(input, noise_level, radio_flux)
-            input -= pred_noise
-
-            history.append(input.clone())
-
-    history = [H.cpu().detach().squeeze().numpy() for H in history]
+    history = sample_ddim(model, radio_flux, sf, n, eta)
+    
     if not return_history:
         history = [history[-1]]
 
@@ -73,3 +61,60 @@ def sample(
         return return_value
 
     return return_value[-1]
+
+# sample quickly using DDIM
+@torch.no_grad()
+def sample_ddim(model, radio_flux, sf, n, eta):
+    # x_T ~ N(0, 1), sample initial noise
+    samples = torch.randn(1, 8281).to(device)
+
+    # array to keep track of generated steps for plotting
+    intermediate = [] 
+    step_size = timesteps // n
+    for i in range(timesteps, 0, -step_size):
+        print(f'sampling timestep {i:3d}', end='\r')
+
+        # reshape time tensor
+        t = torch.tensor([i / timesteps])[:].to(device)
+
+        eps = model(samples, noise_level=t, radio_flux=radio_flux)    # predict noise e_(x_t,t)
+        samples = denoise_ddim(samples, i, i - step_size, eps, sf, eta)
+        intermediate.append(samples.squeeze().detach().cpu().numpy())
+
+    history = np.stack(intermediate)
+    return history
+
+
+# define sampling function for DDIM   
+# removes the noise using ddim
+def denoise_ddim(x, t, t_prev, pred_noise, sf, eta=0.0):
+    """
+    Denoise using DDIM with optional stochasticity controlled by eta.
+
+    Args:
+        x (torch.Tensor): Current noisy sample.
+        t (int): Current timestep.
+        t_prev (int): Previous timestep.
+        pred_noise (torch.Tensor): Predicted noise.
+        sf (float): Scaling factor for noise.
+        eta (float): Stochasticity parameter (0 for deterministic, >0 for stochastic).
+
+    Returns:
+        torch.Tensor: Denoised sample.
+    """
+    ab = ab_t[t]
+    ab_prev = ab_t[t_prev]
+    
+    # Predict x0 (original sample)
+    x0_pred = ab_prev.sqrt() / ab.sqrt() * (x - sf * (1 - ab).sqrt() * pred_noise)
+    
+    # Directional update
+    dir_xt = sf * (1 - ab_prev).sqrt() * pred_noise
+    
+    # Add stochasticity
+    if eta > 0:
+        noise = torch.randn_like(x)  # Random noise
+        sigma = eta * ((1 - ab_prev) / (1 - ab)).sqrt() * (1 - ab / ab_prev).sqrt()
+        dir_xt += sigma * noise
+
+    return x0_pred + dir_xt
