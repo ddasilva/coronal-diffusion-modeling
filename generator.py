@@ -15,7 +15,7 @@ def sample(
     nmax=90,
     sf=1,
     n=20,
-    eta=0.0,
+    eta=0.1,
     return_history=False,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -72,7 +72,7 @@ def sample_ddim(model, radio_flux, sf, n, eta):
     intermediate = [] 
     step_size = timesteps // n
     for i in range(timesteps, 0, -step_size):
-        print(f'sampling timestep {i:3d}', end='\r')
+        #print(f'sampling timestep {i:3d}', end='\r')
 
         # reshape time tensor
         t = torch.tensor([i / timesteps])[:].to(device)

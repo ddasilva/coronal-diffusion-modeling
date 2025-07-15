@@ -86,8 +86,10 @@ class SHVisualizer:
             r, grid_density, closed_only=closed_only,
         )
 
-        self.plot(field_lines, colors, lim)
-
+        fig = self.plot(field_lines, colors, lim)
+    
+        return fig
+    
     def plot(self, field_lines, colors, lim):
         fig = go.Figure()
 
@@ -133,7 +135,7 @@ class SHVisualizer:
             ),
             margin=dict(l=0, r=0, b=0, t=0),
         )
-        fig.show()
+        return fig
 
     def plot_magnetogram(self, r=1.05, lim=2.5):
         result, lat, lon = self.get_magnetogram(r)

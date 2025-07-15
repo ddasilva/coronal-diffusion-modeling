@@ -23,14 +23,14 @@ batch_size = 128
 epochs = 50
 learning_rate = 0.0001
 num_workers = 0
-run_name = "experiment3"
+run_name = "experiment4"
 
 harmonics_lambda = 1
 magnetic_lambda = 1e-5
 
 out_path_template = f"checkpoints/{run_name}_%d.pth"
 plot_br = True
-plot_br_freq = 500
+plot_field_lines = True
 
 # Dataset and DataLoader
 train_dataset = CoronalFieldDatasetHDF("training_dataset.h5")
@@ -107,6 +107,8 @@ for epoch in range(epochs):
         desc=f"Epoch {epoch+1}/{epochs}",
     )
 
+    # Training: Loop through batches
+    # ---------------------------------------------------------------------------
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
         # Move inputs to GPU if available
         orig_coeffs = orig_coeffs.to(device)
@@ -164,26 +166,6 @@ for epoch in range(epochs):
             epoch * len(train_dataloader) + batch_idx,
         )
 
-        if plot_br and batch_idx > 0 and batch_idx % plot_br_freq == 0:
-            for radio_flux, subtitle in zip([0, 1], ["Solar Minimum", "Solar Maximum"]):
-                with torch.no_grad():
-                    G, H = gen.sample(model=model, radio_flux=radio_flux)
-                vis = vt.SHVisualizer(G, H)
-                vis.plot_magnetogram()
-
-                buff = BytesIO()
-                plt.savefig(buff, format='png', dpi=100)
-                plt.close()
-                
-                buff.seek(0)
-                image = np.array(Image.open(buff))
-
-                writer.add_image(
-                    "Generated Magnetogram / (" + subtitle + ")",
-                    image.transpose(2, 0, 1),
-                    epoch * len(train_dataloader) + batch_idx,
-                )
-
         # Update progress bar with current loss
         progress_bar.set_postfix(
             loss=loss.item(),
@@ -198,7 +180,54 @@ for epoch in range(epochs):
 
     print(f"Epoch [{epoch+1}/{epochs}], Training Loss: {epoch_loss:.4f}")
 
+    # Plot some sample images
+    # ---------------------------------------------------------------------------
+    if plot_br:
+        print('Plotting magnetogram...')
+
+        for radio_flux, subtitle in zip([0, 1], ["Solar Minimum", "Solar Maximum"]):
+            with torch.no_grad():
+                G, H = gen.sample(model=model, radio_flux=radio_flux)
+            
+            vis = vt.SHVisualizer(G, H)
+            vis.plot_magnetogram()
+
+            buff = BytesIO()
+            plt.savefig(buff, format='png', dpi=100)
+            plt.close()
+            
+            buff.seek(0)
+            image = np.array(Image.open(buff))
+
+            writer.add_image(
+                "Generated Magnetogram / (" + subtitle + ")",
+                image.transpose(2, 0, 1),
+                epoch * len(train_dataloader) + batch_idx,
+            )
+
+    if plot_field_lines:
+        print('Plotting field lines...')
+
+        for radio_flux, subtitle in zip([0, 1], ["Solar Minimum", "Solar Maximum"]):
+            with torch.no_grad():
+                G, H = gen.sample(model=model, radio_flux=radio_flux)
+            
+            vis = vt.SHVisualizer(G, H)
+            fig = vis.visualize_field_lines(r=1.1, grid_density=20)
+
+            buff = BytesIO()
+            fig.write_image(buff, width=800, height=600)   
+            buff.seek(0)
+            image = np.array(Image.open(buff))
+
+            writer.add_image(
+                "Field Lines / (" + subtitle + ")",
+                image.transpose(2, 0, 1),
+                epoch * len(train_dataloader) + batch_idx,
+            )
+    
     # Evaluate on test set
+    # ---------------------------------------------------------------------------
     model.eval()
     test_loss = 0
 

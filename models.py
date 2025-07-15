@@ -4,64 +4,6 @@ import numpy as np
 import torch_harmonics as th
 import math
 
-def fix_coeffs(G, H):
-    """
-    Convert real spherical harmonics coefficients (G and H) to complex form (C and S).
-    
-    Args:
-        G (torch.Tensor): Real spherical harmonics coefficients G_l^m
-                         Shape: (max_degree + 1, max_degree + 1) or flattened
-        H (torch.Tensor): Real spherical harmonics coefficients H_l^m  
-                         Shape: (max_degree + 1, max_degree + 1) or flattened
-    
-    Returns:
-        tuple: (C, S) where:
-            C (torch.Tensor): Complex coefficients for positive m
-            S (torch.Tensor): Complex coefficients for negative m
-    
-    Note:
-        The conversion follows the standard convention where:
-        - For m > 0: C_l^m = (G_l^m - i*H_l^m) / sqrt(2)
-        - For m < 0: S_l^|m| = (G_l^|m| + i*H_l^|m|) / sqrt(2)  
-        - For m = 0: C_l^0 = G_l^0 (purely real)
-    """
-    
-    # Ensure inputs are torch tensors
-    if not isinstance(G, torch.Tensor):
-        G = torch.tensor(G, dtype=torch.float32)
-    if not isinstance(H, torch.Tensor):
-        H = torch.tensor(H, dtype=torch.float32)
-    
-    # Get the maximum degree from the shape
-    if G.dim() == 2:
-        max_degree = G.shape[0] - 1
-    else:
-        # Assume flattened format and infer max degree
-        max_degree = int(np.sqrt(len(G))) - 1
-        G = G.reshape(max_degree + 1, max_degree + 1)
-        H = H.reshape(max_degree + 1, max_degree + 1)
-    
-    # Initialize complex coefficient arrays
-    C = torch.zeros((max_degree + 1, max_degree + 1), dtype=torch.complex64)
-    S = torch.zeros((max_degree + 1, max_degree + 1), dtype=torch.complex64)
-    
-    sqrt2 = torch.sqrt(torch.tensor(2.0))
-    
-    for l in range(max_degree + 1):
-        for m in range(l + 1):
-            if m == 0:
-                # For m = 0, coefficient is purely real
-                C[l, 0] = G[l, 0].to(torch.complex64)
-            else:
-                # For m > 0: C_l^m = (G_l^m - i*H_l^m) / sqrt(2)
-                C[l, m] = (G[l, m] - 1j * H[l, m]) / sqrt2
-                
-                # For m < 0: S_l^m = (G_l^m + i*H_l^m) / sqrt(2)
-                # Store at positive index for convenience
-                S[l, m] = (G[l, m] + 1j * H[l, m]) / sqrt2
-    
-    return C, S
-
 
 def fix_coeffs_batch(G, H):
     """
@@ -235,31 +177,41 @@ class DiffusionModel(nn.Module):
         self.ln2 = nn.LayerNorm(hidden_dim)
         self.act2 = nn.LeakyReLU(0.1)
         self.final = nn.Linear(hidden_dim, output_dim)
-        self.context_proj = nn.Linear(1, hidden_dim)
-        self.noise_embed = nn.Linear(1, hidden_dim)        
+        self.context_linear = nn.Linear(1, hidden_dim)
+        self.context_act = nn.LeakyReLU(0.1)
+        self.context_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.noise_linear = nn.Linear(1, hidden_dim)
+        self.noise_act = nn.LeakyReLU(0.1)
+        self.noise_embed = nn.Linear(hidden_dim, hidden_dim)        
         if input_dim != hidden_dim:
             self.residual_proj = nn.Linear(input_dim, hidden_dim)
         else:
             self.residual_proj = nn.Identity()
 
-    
     def forward(self, noisy_x, noise_level, radio_flux=None):
         out = self.input_layer(noisy_x)
         out = self.ln1(out)
         out = self.act1(out)
         res = self.residual_proj(noisy_x)
         out = out + res
+        
         # Noise embedding
         if isinstance(noise_level, float) or len(noise_level.shape) == 0:
             noise_level = torch.tensor([noise_level], dtype=out.dtype, device=out.device).repeat(out.shape[0], 1)
         elif len(noise_level.shape) == 1:
             noise_level = noise_level.unsqueeze(1)
-        noise_emb = self.noise_embed(noise_level)
+        noise_emb = self.noise_linear(noise_level)
+        noise_emb = self.noise_act(noise_emb)
+        noise_emb = self.noise_embed(noise_emb)
         out = out + noise_emb
+
         # Context embedding
         if radio_flux is not None:
-            context = self.context_proj(radio_flux)
+            context = self.context_linear(radio_flux)
+            context = self.context_act(context)
+            context = self.context_proj(context)
             out = out + context
+        
         out = self.hidden2(out)
         out = self.ln2(out)
         out = self.act2(out)
