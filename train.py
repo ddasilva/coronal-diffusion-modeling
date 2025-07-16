@@ -209,7 +209,7 @@ for epoch in range(epochs):
             writer.add_image(
                 "Generated Magnetogram / (" + subtitle + ")",
                 image.transpose(2, 0, 1),
-                epoch,
+                epoch + 1,
             )
 
     if plot_field_lines:
@@ -230,7 +230,7 @@ for epoch in range(epochs):
             writer.add_image(
                 "Field Lines / (" + subtitle + ")",
                 image.transpose(2, 0, 1),
-                epoch,
+                epoch + 1,
             )
     
     # Evaluate on test set
