@@ -11,8 +11,14 @@ def main():
     mean = X.mean(axis=0)
     std = X.std(axis=0)
     mean_abs = np.abs(X).mean(axis=0)
+    mean_square = np.square(X).mean(axis=0)
 
-    out = {"mean": mean.tolist(), "std": std.tolist(), "mean_abs": mean_abs.tolist()}
+    out = {
+        "mean": mean.tolist(),
+        "std": std.tolist(),
+        "mean_abs": mean_abs.tolist(),
+        "mean_square": mean_square.tolist()
+    }
 
     with open("scalers.json", "w") as fh:
         json.dump(out, fh, indent=4)

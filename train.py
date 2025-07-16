@@ -20,13 +20,14 @@ input_dim = 8281
 hidden_dim = 8281
 output_dim = 8281
 batch_size = 128
-epochs = 50
+epochs = 100
 learning_rate = 0.0001
 num_workers = 0
-run_name = "experiment4"
+run_name = "experiment7"
 
 harmonics_lambda = 1
-magnetic_lambda = 1e-5
+#magnetic_lambda = 1e-5
+magnetic_lambda = 0
 
 out_path_template = f"checkpoints/{run_name}_%d.pth"
 plot_br = True
@@ -56,6 +57,7 @@ with open('scalers.json') as fh:
 inputs_mean = torch.tensor(scalers["mean"]).float().to(device)
 inputs_std = torch.tensor(scalers["std"]).float().to(device)
 inputs_mean_abs = torch.tensor(scalers["mean_abs"]).float().to(device)
+inputs_mean_square = torch.tensor(scalers["mean_square"]).float().to(device)
 
 # Model, Loss, Optimizer
 model = DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
@@ -63,9 +65,10 @@ magnetic_model = MagneticModel().to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # Add a learning rate scheduler
-#scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=.8)
 
-harmonic_weights = 1.0 / (inputs_std + 1e-6)
+#harmonic_weights = 1.0 / (inputs_std + 1e-6)
+harmonic_weights = 1.0 / torch.clamp(inputs_mean_square, min=100)
 magnetic_weights = torch.tensor(magnetic_model.default_r, device=device) ** 2
 
 # Initialize TensorBoard writer
@@ -73,8 +76,9 @@ writer = SummaryWriter(log_dir=f"runs/{run_name}")
 
 
 def harmonics_criterian(pred, target, weights):
-    w = weights / weights.sum()
-    return torch.sum(w * (pred - target) ** 2, dim=1).mean()
+    #w = weights / weights.sum()
+    #return torch.sum((pred - target) ** 2, dim=1).mean()
+    return torch.mean((pred - target) ** 2)
 
 
 def magnetic_criterion(pred, target, weights):
@@ -129,10 +133,13 @@ for epoch in range(epochs):
 
         harmonics_loss = harmonics_criterian(pred_noise, true_noise, harmonic_weights) 
         
-        pred_coeffs = unperturb_input(noisey_inputs, t, pred_noise) * inputs_std + inputs_mean
-        pred_magnetic = magnetic_model(pred_coeffs, potential=True)
-        target_magnetic = magnetic_model(orig_coeffs, potential=True)
-        magnetic_loss = magnetic_criterion(pred_magnetic, target_magnetic, magnetic_weights) 
+        if magnetic_lambda == 0:
+            magnetic_loss = torch.tensor(0.0, device=device)
+        else:
+            pred_coeffs = unperturb_input(noisey_inputs, t, pred_noise) * inputs_std + inputs_mean
+            pred_magnetic = magnetic_model(pred_coeffs, potential=True)
+            target_magnetic = magnetic_model(orig_coeffs, potential=True)
+            magnetic_loss = magnetic_criterion(pred_magnetic, target_magnetic, magnetic_weights) 
 
         loss = harmonics_lambda * harmonics_loss + magnetic_lambda * magnetic_loss
 
@@ -202,7 +209,7 @@ for epoch in range(epochs):
             writer.add_image(
                 "Generated Magnetogram / (" + subtitle + ")",
                 image.transpose(2, 0, 1),
-                epoch * len(train_dataloader) + batch_idx,
+                epoch,
             )
 
     if plot_field_lines:
@@ -213,7 +220,7 @@ for epoch in range(epochs):
                 G, H = gen.sample(model=model, radio_flux=radio_flux)
             
             vis = vt.SHVisualizer(G, H)
-            fig = vis.visualize_field_lines(r=1.1, grid_density=20)
+            fig = vis.visualize_field_lines(r=1.1, grid_density=40)
 
             buff = BytesIO()
             fig.write_image(buff, width=800, height=600)   
@@ -223,7 +230,7 @@ for epoch in range(epochs):
             writer.add_image(
                 "Field Lines / (" + subtitle + ")",
                 image.transpose(2, 0, 1),
-                epoch * len(train_dataloader) + batch_idx,
+                epoch,
             )
     
     # Evaluate on test set
@@ -245,10 +252,13 @@ for epoch in range(epochs):
             pred_noise = model(noisey_inputs, noise_level=t/timesteps, radio_flux=radio_flux) 
             harmonics_loss = harmonics_criterian(pred_noise, true_noise, harmonic_weights).item()
 
-            pred_coeffs = unperturb_input(noisey_inputs, t, pred_noise) * inputs_std + inputs_mean
-            pred_magnetic = magnetic_model(pred_coeffs, potential=True)
-            target_magnetic = magnetic_model(orig_coeffs, potential=True)
-            magnetic_loss = magnetic_criterion(pred_magnetic, target_magnetic, magnetic_weights)  # Add br loss
+            if magnetic_lambda == 0:
+                magnetic_loss = torch.tensor(0.0, device=device)
+            else:
+                pred_coeffs = unperturb_input(noisey_inputs, t, pred_noise) * inputs_std + inputs_mean
+                pred_magnetic = magnetic_model(pred_coeffs, potential=True)
+                target_magnetic = magnetic_model(orig_coeffs, potential=True)
+                magnetic_loss = magnetic_criterion(pred_magnetic, target_magnetic, magnetic_weights)  # Add br loss
             
             test_loss += harmonics_lambda * harmonics_loss + magnetic_lambda * magnetic_loss
 
@@ -261,6 +271,8 @@ for epoch in range(epochs):
     out_path = out_path_template % (epoch + 1)
     torch.save(model.state_dict(), out_path)
     print('Model checkpoint:', out_path)
+
+    scheduler.step()  # Step the learning rate scheduler
 
 
 # Close the TensorBoard writer

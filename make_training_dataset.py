@@ -10,7 +10,7 @@ import h5py
 import pandas as pd
 from matplotlib.dates import date2num
 
-DELTA_ROT = 5
+DELTA_ROT = 15
 
 
 def main(root_dir, out_file):
@@ -31,8 +31,8 @@ def main(root_dir, out_file):
     files = glob.glob(f"{root_dir}/*R000*.fits")
     files.sort()
 
-    items = np.zeros((len(files)* 360 // DELTA_ROT, 8281))
-    radio_fluxes = np.zeros((len(files)* 360 // DELTA_ROT,))
+    items = np.zeros((2 * len(files)* 360 // DELTA_ROT, 8281))
+    radio_fluxes = np.zeros((2 * len(files)* 360 // DELTA_ROT,))
 
     counter = 0
 
@@ -86,8 +86,10 @@ def enumerate_variations(file_path):
 
     for rot in range(DELTA_ROT, 360, DELTA_ROT):
         rot_coeffs = coeffs.copy().rotate(alpha=rot, beta=0, gamma=0, degrees=True)
+        flip_coeffs = rot_coeffs.rotate(alpha=0, beta=180, gamma=0, degrees=True)
 
         yield rot_coeffs.coeffs[0], rot_coeffs.coeffs[1]
+        yield flip_coeffs.coeffs[0], flip_coeffs.coeffs[1]
 
 
 if __name__ == "__main__":
