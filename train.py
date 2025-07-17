@@ -22,11 +22,11 @@ output_dim = 8281
 batch_size = 128
 epochs = 100
 learning_rate = 0.0001
-num_workers = 0
-run_name = "experiment7"
+num_workers = 8
+run_name = "experiment9"
 
 harmonics_lambda = 1
-#magnetic_lambda = 1e-5
+#magnetic_lambda = 1e-6
 magnetic_lambda = 0
 
 out_path_template = f"checkpoints/{run_name}_%d.pth"
@@ -68,7 +68,8 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=.8)
 
 #harmonic_weights = 1.0 / (inputs_std + 1e-6)
-harmonic_weights = 1.0 / torch.clamp(inputs_mean_square, min=100)
+#harmonic_weights = 1.0 / torch.clamp(inputs_mean_square, min=100)
+harmonic_weights = torch.ones(*inputs_std.shape, device=device)
 magnetic_weights = torch.tensor(magnetic_model.default_r, device=device) ** 2
 
 # Initialize TensorBoard writer
@@ -76,9 +77,8 @@ writer = SummaryWriter(log_dir=f"runs/{run_name}")
 
 
 def harmonics_criterian(pred, target, weights):
-    #w = weights / weights.sum()
-    #return torch.sum((pred - target) ** 2, dim=1).mean()
-    return torch.mean((pred - target) ** 2)
+    w = weights / weights.sum()
+    return torch.sum(w * (pred - target) ** 2, dim=1).mean()
 
 
 def magnetic_criterion(pred, target, weights):
@@ -147,7 +147,7 @@ for epoch in range(epochs):
         loss.backward()
 
         # Clip gradients to prevent exploding gradients
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         # Update model parameter
         optimizer.step()

@@ -58,8 +58,8 @@ class SHVisualizer:
         step_size = 0.01  # Step size
         max_steps = 1000  # Maximum number of steps to trace
 
-        lat_values = np.linspace(-89, 89, grid_density)
-        lon_values = np.linspace(0, 360, grid_density)
+        lat_values = np.linspace(-89.9, 89.9, grid_density, endpoint=False)
+        lon_values = np.linspace(0, 360, grid_density, endpoint=False)
 
         field_lines = []
         colors = []
@@ -79,6 +79,36 @@ class SHVisualizer:
 
         return field_lines, colors
 
+    def get_coronal_holes(self, grid_density, r=1.1):
+        step_size = 0.01  # Step size
+        max_steps = 1000  # Maximum number of steps to trace
+
+        lat_values = np.linspace(-89, 89, grid_density)
+        lon_values = np.linspace(0, 359, grid_density)
+
+        ch_map = np.ones((lat_values.size, lon_values.size), dtype=bool)
+        
+        for i, lat_deg in enumerate(lat_values):
+            for j, lon_deg in enumerate(lon_values):
+                for dir in [-1, 1]:
+                    start_point = cs.sp2cart(
+                        r, np.deg2rad(lat_deg), np.deg2rad(lon_deg)
+                    )
+                    field_line, color = self.trace_field_line(
+                        start_point, dir * step_size, max_steps, closed_only=True
+                    )
+
+                    if field_line is None:
+                        ch_map[i, j] = 0
+
+        return lat_values, lon_values, ch_map
+
+    def plot_coronal_holes(self, grid_density=10):
+        lat_values, lon_values, ch_map = self.get_coronal_holes(grid_density)
+        plt.pcolor(lon_values, lat_values, ch_map)
+        plt.colorbar().set_label('Coronal Hole')
+        
+    
     def visualize_field_lines(
         self, r=1.1, grid_density=10, closed_only=False, lim=OUTER_BOUNDARY
     ):
@@ -137,19 +167,33 @@ class SHVisualizer:
         )
         return fig
 
-    def plot_magnetogram(self, r=1.05, lim=2.5):
+    def plot_magnetogram(self, r=1.05, lim=2.5, sign=False):
         result, lat, lon = self.get_magnetogram(r)
         Br = result[:, 0].reshape(lat.shape) * 1e-5
-
+        if sign:
+            Br = np.sign(Br)
+            lim = 1
+        
         plt.figure(figsize=(10, 5))
         plt.pcolor(lon, lat, Br, cmap="Grays", vmax=lim, vmin=-lim)
-        plt.colorbar().set_label('Br (T)')
-        plt.title(f'$B_r$ at r={r} $R_\\odot$', fontsize=18)
 
+        if sign:
+            plt.title(f'Polarity at r={r} $R_\\odot$', fontsize=18)
+            plt.colorbar().set_label('Polarity')
+        else:
+            plt.colorbar().set_label('Br (T)')
+            plt.title(f'$B_r$ at r={r} $R_\\odot$', fontsize=18)
+
+    def plot_current_sheet(self, r=2.5):
+        self.plot_magnetogram(r=r, sign=True)
+        
+        
+    
     def get_magnetogram(self, r):
         # Get magnetogram data
         lat_axis = np.arange(-89, 90, 1)
         lon_axis = np.arange(0, 360, 1)
+
         lat, lon = np.meshgrid(lat_axis, lon_axis, indexing="ij")
 
         result = np.array(

@@ -132,7 +132,7 @@ class MagneticModel(nn.Module):
         self.nmax = 90
         self.cutoff = np.tril_indices(self.nmax + 1)[0].size
         self.isht = th.InverseRealSHT(self.nlat, self.nlon, grid='equiangular', norm='ortho', lmax=self.nmax + 1, mmax=self.nmax + 1)
-        self.default_r = np.arange(1.0, 2.6, .1)
+        self.default_r = np.arange(1.0, 2.55, .05)
 
     def forward(self, out, r=None, potential=True):
         if r is None:

@@ -10,7 +10,7 @@ import h5py
 import pandas as pd
 from matplotlib.dates import date2num
 
-DELTA_ROT = 15
+DELTA_ROT = 1
 
 
 def main(root_dir, out_file):
@@ -31,41 +31,33 @@ def main(root_dir, out_file):
     files = glob.glob(f"{root_dir}/*R000*.fits")
     files.sort()
 
-    items = np.zeros((2 * len(files)* 360 // DELTA_ROT, 8281))
-    radio_fluxes = np.zeros((2 * len(files)* 360 // DELTA_ROT,))
+    hdf = h5py.File(out_file, "w")
+    items_shape = (2 * len(files) * 360 // DELTA_ROT, 8281)
+    items = hdf.create_dataset("X", items_shape, dtype=np.float32)
+    radio_fluxes = np.zeros((2 * len(files) * 360 // DELTA_ROT,), dtype=np.float32)
 
     counter = 0
 
-    for file in tqdm.tqdm(files, desc="Processing files"):
-        time = datetime.datetime.strptime(
-            os.path.basename(file).split('R')[0], 'wsa_%Y%m%d%H%M'
-        )
-        radio_flux = float(np.interp(
-            date2num(pd.Timestamp(time)),
-            date2num(df_radio['times']),
-            df_radio['adjusted_flux_smoothed'],
-        ))
+    for file in tqdm.tqdm(files):
+        results = process_file(file, df_radio)
 
-        for G, H in enumerate_variations(file):
+        for (G, H, radio_flux) in results:
             items[counter] = (
                 np.concatenate(
                     [G[np.tril_indices(G.shape[0])], H[1:,1:][np.tril_indices(H.shape[0]-1)]]
                 ).flatten()
             )
             radio_fluxes[counter] = radio_flux
+                
             counter += 1
-
-    # Normalize the radio fluxes
+    
+    # Normalize the radio fluxes and write
     radio_fluxes = (radio_fluxes - np.min(radio_fluxes)) 
     radio_fluxes /= np.max(radio_fluxes)
 
-    print(items)
-    print(radio_fluxes)
-
-    # Write to HDF file
-    with h5py.File(out_file, "w") as hdf:
-        hdf["X"] = items
-        hdf['radio_fluxes'] = radio_fluxes
+    hdf['radio_fluxes'] = radio_fluxes
+    
+    hdf.close()
 
 
 def enumerate_variations(file_path):
@@ -86,12 +78,30 @@ def enumerate_variations(file_path):
 
     for rot in range(DELTA_ROT, 360, DELTA_ROT):
         rot_coeffs = coeffs.copy().rotate(alpha=rot, beta=0, gamma=0, degrees=True)
-        flip_coeffs = rot_coeffs.rotate(alpha=0, beta=180, gamma=0, degrees=True)
+        flip_coeffs = rot_coeffs.copy().rotate(alpha=0, beta=180, gamma=0, degrees=True)
 
         yield rot_coeffs.coeffs[0], rot_coeffs.coeffs[1]
         yield flip_coeffs.coeffs[0], flip_coeffs.coeffs[1]
 
 
+def process_file(file, df_radio):
+    time = datetime.datetime.strptime(
+        os.path.basename(file).split('R')[0], 'wsa_%Y%m%d%H%M'
+    )
+    radio_flux = float(np.interp(
+        date2num(pd.Timestamp(time)),
+        date2num(df_radio['times']),
+        df_radio['adjusted_flux_smoothed'],
+    ))
+
+    results = []
+
+    for G, H in enumerate_variations(file):
+        results.append((G, H, radio_flux))
+
+    return results
+        
+    
 if __name__ == "__main__":
     root_dir = "/home/ubuntu/CoronalFieldExtrapolation/CoronalFieldExtrapolation_train"
     out_file = "training_dataset.h5"
@@ -100,3 +110,5 @@ if __name__ == "__main__":
     root_dir = "/home/ubuntu/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test"
     out_file = "test_dataset.h5"
     main(root_dir, out_file)
+
+    

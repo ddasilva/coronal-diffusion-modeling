@@ -43,14 +43,11 @@ class CoronalFieldDataset(Dataset):
 
 class CoronalFieldDatasetHDF(Dataset):
 
-    def __init__(self, path, lim=None):
-        with h5py.File(path) as hdf:
-            if lim is None:
-                lim = hdf['X'].shape[0]
-
-            self.X = hdf["X"][:lim]
-            self.radio_fluxes = hdf["radio_fluxes"][:]
-
+    def __init__(self, path):
+        self.hdf = h5py.File(path, "r")
+        self.X = self.hdf["X"]
+        self.radio_fluxes = self.hdf["radio_fluxes"]
+        
     def __len__(self):
         return self.X.shape[0]
 
