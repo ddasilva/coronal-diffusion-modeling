@@ -23,7 +23,7 @@ batch_size = 128
 epochs = 100
 learning_rate = 0.0001
 num_workers = 8
-run_name = "experiment9"
+run_name = "experiment10"
 
 harmonics_lambda = 1
 #magnetic_lambda = 1e-6
