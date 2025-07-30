@@ -9,8 +9,10 @@ import tqdm
 import h5py
 import pandas as pd
 from matplotlib.dates import date2num
+from constants import X_SIZE
 
-DELTA_ROT = 1
+
+DELTA_ROT = 15
 
 
 def main(root_dir, out_file):
@@ -28,11 +30,11 @@ def main(root_dir, out_file):
     df_radio['adjusted_flux_smoothed'] = df_radio['adjusted_flux'].rolling(window=3*365).median()
 
     # Load magnetic field data
-    files = glob.glob(f"{root_dir}/*R000*.fits")
+    files = glob.glob(f"{root_dir}/*.fits")
     files.sort()
 
     hdf = h5py.File(out_file, "w")
-    items_shape = (2 * len(files) * 360 // DELTA_ROT, 8281)
+    items_shape = (2 * len(files) * 360 // DELTA_ROT, X_SIZE)
     items = hdf.create_dataset("X", items_shape, dtype=np.float32)
     radio_fluxes = np.zeros((2 * len(files) * 360 // DELTA_ROT,), dtype=np.float32)
 
@@ -52,6 +54,7 @@ def main(root_dir, out_file):
             counter += 1
     
     # Normalize the radio fluxes and write
+    radio_fluxes[radio_flux == 0] = radio_fluxes[radio_fluxes > 0].min()
     radio_fluxes = (radio_fluxes - np.min(radio_fluxes)) 
     radio_fluxes /= np.max(radio_fluxes)
 
@@ -73,8 +76,10 @@ def enumerate_variations(file_path):
         coeffs_array, normalization="schmidt", r0=1
     )
     coeffs = coeffs.convert(normalization='ortho')
+    flip_coeffs = coeffs.copy().rotate(alpha=0, beta=180, gamma=0, degrees=True)
 
     yield coeffs.coeffs[0], coeffs.coeffs[1]
+    yield flip_coeffs.coeffs[0], flip_coeffs.coeffs[1]
 
     for rot in range(DELTA_ROT, 360, DELTA_ROT):
         rot_coeffs = coeffs.copy().rotate(alpha=rot, beta=0, gamma=0, degrees=True)
