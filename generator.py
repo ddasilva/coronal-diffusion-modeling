@@ -8,15 +8,16 @@ def sample(
     weights_file="diffusion_model.pth",
     radio_flux=0,
     model=None,
-    output_dim=8281,
-    input_dim=8281,
-    hidden_dim=8281,
+    output_dim=X_SIZE,
+    input_dim=X_SIZE,
+    hidden_dim=X_SIZE,
     device=None,
     nmax=90,
     sf=1,
     n=20,
     eta=0.1,
     return_history=False,
+    method='ddim',
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -26,7 +27,13 @@ def sample(
         model.load_state_dict(torch.load(weights_file, map_location=device))
 
     radio_flux = torch.from_numpy(np.array([radio_flux]).reshape(1, -1)).float().to(device)
-    history = sample_ddim(model, radio_flux, sf, n, eta)
+    
+    if method == 'ddim':
+        history = sample_ddim(model, radio_flux, sf, n, eta)
+    elif method == 'ddpm':
+        history = sample_ddpm(model, radio_flux, sf, n)
+    else:
+        raise ValueError(f"Unknown sampling method: {method}")
     
     if not return_history:
         history = [history[-1]]
@@ -62,11 +69,13 @@ def sample(
 
     return return_value[-1]
 
+
+
 # sample quickly using DDIM
 @torch.no_grad()
 def sample_ddim(model, radio_flux, sf, n, eta):
     # x_T ~ N(0, 1), sample initial noise
-    samples = torch.randn(1, 8281).to(device)
+    samples = torch.randn(1, X_SIZE).to(device)
 
     # array to keep track of generated steps for plotting
     intermediate = [] 
@@ -118,3 +127,61 @@ def denoise_ddim(x, t, t_prev, pred_noise, sf, eta=0.0):
         dir_xt += sigma * noise
 
     return x0_pred + dir_xt
+
+
+@torch.no_grad()
+def denoise_ddpm(x, t_idx, eps, sf):
+    """
+    DDPM denoising step based on Ho et al. (2020).
+
+    Args:
+        x (torch.Tensor): Current noisy sample at timestep t.
+        t_idx (int): Current timestep index.
+        eps (torch.Tensor): Model's predicted noise (epsilon).
+        sf (float): Noise scaling factor (1.0 for DDPM).
+
+    Returns:
+        torch.Tensor: Sample at timestep t-1.
+    """
+    b = b_t[t_idx]
+    a = a_t[t_idx]
+    ab = ab_t[t_idx]
+    ab_prev = ab_t[t_idx - 1]
+
+    # Estimate the clean sample x0
+    x0_pred = (x - (1 - ab).sqrt() * eps) / ab.sqrt()
+
+    # Compute posterior mean and variance
+    mean = (ab_prev.sqrt() * b / (1 - ab)) * x0_pred + \
+           ((1 - ab_prev) * a.sqrt() / (1 - ab)) * x
+
+    # Sample from posterior distribution
+    if t_idx > 1:
+        noise = torch.randn_like(x)
+        var = sf * ((1 - ab_prev) / (1 - ab)) * b
+        return mean + var.sqrt() * noise
+    else:
+        return mean  # final step, no noise
+
+@torch.no_grad()
+def sample_ddpm(model, radio_flux, sf, n):
+    """
+    DDPM ancestral sampling (standard diffusion sampling, not deterministic like DDIM).
+    Args:
+        model: The trained diffusion model.
+        radio_flux: Conditioning variable.
+        sf: Scaling factor for noise.
+        n: Number of steps to sample.
+    Returns:
+        history: np.ndarray of generated samples at each step.
+    """
+    x = torch.randn(1, X_SIZE, device=device)
+    history = [x.squeeze().cpu().numpy()]
+
+    for t_idx in reversed(range(1, timesteps + 1)):
+        t = torch.tensor([t_idx / timesteps]).to(device)
+        eps = model(x, noise_level=t, radio_flux=radio_flux)    # predict noise e_(x_t,t)
+        x = denoise_ddpm(x, t_idx, eps, sf)
+        history.append(x.squeeze().cpu().numpy())
+
+    return np.stack(history, axis=0)
