@@ -8,3 +8,5 @@ pyshtools
 scipy
 numpy
 torch-harmonics
+h5py
+tensorboard

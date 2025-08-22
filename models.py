@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import torch_harmonics as th
 import math
+from constants import X_SIZE
 
 
 def fix_coeffs_batch(G, H):
@@ -168,7 +169,7 @@ class MagneticModel(nn.Module):
 
 
 class DiffusionModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim=X_SIZE, hidden_dim=X_SIZE, output_dim=X_SIZE):
         super(DiffusionModel, self).__init__()
         self.input_layer = nn.Linear(input_dim, hidden_dim)
         self.ln1 = nn.LayerNorm(hidden_dim)

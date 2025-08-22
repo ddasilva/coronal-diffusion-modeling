@@ -12,7 +12,7 @@ from matplotlib.dates import date2num
 from constants import X_SIZE
 
 
-DELTA_ROT = 15
+DELTA_ROT = 1
 
 
 def main(root_dir, out_file):
@@ -108,12 +108,12 @@ def process_file(file, df_radio):
         
     
 if __name__ == "__main__":
-    root_dir = "/home/ubuntu/CoronalFieldExtrapolation/CoronalFieldExtrapolation_train"
-    out_file = "training_dataset.h5"
+    root_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_train"
+    out_file = "/data/dedasilv/coronal-diffusion-modeling/training_dataset.h5"
     main(root_dir, out_file)
 
-    root_dir = "/home/ubuntu/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test"
-    out_file = "test_dataset.h5"
+    root_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test"
+    out_file = "/data/dedasilv/coronal-diffusion-modeling/test_dataset.h5"
     main(root_dir, out_file)
 
     
