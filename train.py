@@ -16,14 +16,11 @@ from constants import ab_t, timesteps
 
 
 # Hyperparameters
-input_dim = 8281
-hidden_dim = 8281
-output_dim = 8281
 batch_size = 128
 epochs = 100
 learning_rate = 0.0001
 num_workers = 8
-run_name = "experiment10"
+run_name = "experiment12-finer-rotations"
 
 harmonics_lambda = 1
 #magnetic_lambda = 1e-6
@@ -34,12 +31,12 @@ plot_br = True
 plot_field_lines = True
 
 # Dataset and DataLoader
-train_dataset = CoronalFieldDatasetHDF("training_dataset.h5")
+train_dataset = CoronalFieldDatasetHDF("/data/dedasilv/coronal-diffusion-modeling/training_dataset.h5")
 train_dataloader = DataLoader(
     train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
 )
 
-test_dataset = CoronalFieldDatasetHDF("test_dataset.h5")
+test_dataset = CoronalFieldDatasetHDF("/data/dedasilv/coronal-diffusion-modeling/test_dataset.h5")
 test_dataloader = DataLoader(
     test_dataset,
     batch_size=batch_size,
@@ -60,7 +57,7 @@ inputs_mean_abs = torch.tensor(scalers["mean_abs"]).float().to(device)
 inputs_mean_square = torch.tensor(scalers["mean_square"]).float().to(device)
 
 # Model, Loss, Optimizer
-model = DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
+model = DiffusionModel().to(device)
 magnetic_model = MagneticModel().to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -88,12 +85,12 @@ def magnetic_criterion(pred, target, weights):
 
 
 def perturb_input(x, t, noise):
-    return ab_t.sqrt()[t, None] * x + (1 - ab_t[t, None]) * noise
+    return ab_t.sqrt()[t, None] * x + (1 - ab_t[t, None]).sqrt() * noise
 
 
 def unperturb_input(noisey_inputs, t, pred_noise):
     ab = ab_t.sqrt()[t, None]
-    one_minus_ab = (1 - ab_t[t, None])
+    one_minus_ab = (1 - ab_t[t, None]).sqrt()
     original_inputs = (noisey_inputs - one_minus_ab * pred_noise) / ab
     return original_inputs
 

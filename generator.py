@@ -6,11 +6,9 @@ from constants import *
 
 def sample(
     weights_file="diffusion_model.pth",
+    seed_helper=None,
     radio_flux=0,
     model=None,
-    output_dim=X_SIZE,
-    input_dim=X_SIZE,
-    hidden_dim=X_SIZE,
     device=None,
     nmax=90,
     sf=1,
@@ -23,15 +21,23 @@ def sample(
 
     # Run deterministic diffusion process nsteps times
     if model is None:
-        model = models.DiffusionModel(input_dim, hidden_dim, output_dim).to(device)
+        model = models.DiffusionModel().to(device)
         model.load_state_dict(torch.load(weights_file, map_location=device))
 
     radio_flux = torch.from_numpy(np.array([radio_flux]).reshape(1, -1)).float().to(device)
     
+    if seed_helper:
+        with open(seed_helper) as fh:
+            seed_helper_json = json.load(fh)
+        seed_mean = torch.tensor(seed_helper_json["mean"], device=device)
+        seed_std = torch.tensor(seed_helper_json["std"], device=device)
+    else:
+        seed_mean, seed_std = torch.zeros(X_SIZE, device=device), torch.ones(X_SIZE, device=device)
+
     if method == 'ddim':
-        history = sample_ddim(model, radio_flux, sf, n, eta)
+        history = sample_ddim(model, radio_flux, sf, n, eta, seed_mean, seed_std)
     elif method == 'ddpm':
-        history = sample_ddpm(model, radio_flux, sf, n)
+        history = sample_ddpm(model, radio_flux, sf, n, seed_mean, seed_std)
     else:
         raise ValueError(f"Unknown sampling method: {method}")
     
@@ -73,9 +79,9 @@ def sample(
 
 # sample quickly using DDIM
 @torch.no_grad()
-def sample_ddim(model, radio_flux, sf, n, eta):
-    # x_T ~ N(0, 1), sample initial noise
-    samples = torch.randn(1, X_SIZE).to(device)
+def sample_ddim(model, radio_flux, sf, n, eta, seed_mean, seed_std):
+    # sample initial noise
+    samples = torch.randn(1, X_SIZE).to(device) * seed_std + seed_mean
 
     # array to keep track of generated steps for plotting
     intermediate = [] 
@@ -163,8 +169,9 @@ def denoise_ddpm(x, t_idx, eps, sf):
     else:
         return mean  # final step, no noise
 
+
 @torch.no_grad()
-def sample_ddpm(model, radio_flux, sf, n):
+def sample_ddpm(model, radio_flux, sf, n, seed_mean, seed_std):
     """
     DDPM ancestral sampling (standard diffusion sampling, not deterministic like DDIM).
     Args:
@@ -175,7 +182,7 @@ def sample_ddpm(model, radio_flux, sf, n):
     Returns:
         history: np.ndarray of generated samples at each step.
     """
-    x = torch.randn(1, X_SIZE, device=device)
+    samples = torch.randn(1, X_SIZE).to(device) * seed_std + seed_mean
     history = [x.squeeze().cpu().numpy()]
 
     for t_idx in reversed(range(1, timesteps + 1)):
