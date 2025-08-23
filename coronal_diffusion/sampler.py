@@ -1,15 +1,17 @@
-import models
+import json
+
 import torch
 import numpy as np
-import json
-from constants import *
+
+from coronal_diffusion import constants, models
+import config
+
 
 def sample(
-    weights_file="diffusion_model.pth",
+    model=None,
+    weights_file=None,
     seed_helper=None,
     radio_flux=0,
-    model=None,
-    device=None,
     nmax=90,
     sf=1,
     n=20,
@@ -17,22 +19,20 @@ def sample(
     return_history=False,
     method='ddim',
 ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     # Run deterministic diffusion process nsteps times
     if model is None:
-        model = models.DiffusionModel().to(device)
-        model.load_state_dict(torch.load(weights_file, map_location=device))
+        model = models.DiffusionModel().to(constants.device)
+        model.load_state_dict(torch.load(weights_file, map_location=constants.device))
 
-    radio_flux = torch.from_numpy(np.array([radio_flux]).reshape(1, -1)).float().to(device)
+    radio_flux = torch.from_numpy(np.array([radio_flux]).reshape(1, -1)).float().to(constants.device)
     
     if seed_helper:
         with open(seed_helper) as fh:
             seed_helper_json = json.load(fh)
-        seed_mean = torch.tensor(seed_helper_json["mean"], device=device)
-        seed_std = torch.tensor(seed_helper_json["std"], device=device)
+        seed_mean = torch.tensor(seed_helper_json["mean"], device=constants.device)
+        seed_std = torch.tensor(seed_helper_json["std"], device=constants.device)
     else:
-        seed_mean, seed_std = torch.zeros(X_SIZE, device=device), torch.ones(X_SIZE, device=device)
+        seed_mean, seed_std = torch.zeros(constants.X_SIZE, device=constants.device), torch.ones(constants.X_SIZE, device=constants.device)
 
     if method == 'ddim':
         history = sample_ddim(model, radio_flux, sf, n, eta, seed_mean, seed_std)
@@ -45,7 +45,7 @@ def sample(
         history = [history[-1]]
 
     # Load scalers
-    with open("scalers.json") as fh:
+    with open(config.scalers_path) as fh:
         scalers = json.load(fh)
 
     mean = np.array(scalers["mean"])
@@ -81,16 +81,16 @@ def sample(
 @torch.no_grad()
 def sample_ddim(model, radio_flux, sf, n, eta, seed_mean, seed_std):
     # sample initial noise
-    samples = torch.randn(1, X_SIZE).to(device) * seed_std + seed_mean
+    samples = torch.randn(1, constants.X_SIZE).to(constants.device) * seed_std + seed_mean
 
     # array to keep track of generated steps for plotting
     intermediate = [] 
-    step_size = timesteps // n
-    for i in range(timesteps, 0, -step_size):
+    step_size = constants.timesteps // n
+    for i in range(constants.timesteps, 0, -step_size):
         #print(f'sampling timestep {i:3d}', end='\r')
 
         # reshape time tensor
-        t = torch.tensor([i / timesteps])[:].to(device)
+        t = torch.tensor([i / constants.timesteps])[:].to(constants.device)
 
         eps = model(samples, noise_level=t, radio_flux=radio_flux)    # predict noise e_(x_t,t)
         samples = denoise_ddim(samples, i, i - step_size, eps, sf, eta)
@@ -117,8 +117,8 @@ def denoise_ddim(x, t, t_prev, pred_noise, sf, eta=0.0):
     Returns:
         torch.Tensor: Denoised sample.
     """
-    ab = ab_t[t]
-    ab_prev = ab_t[t_prev]
+    ab = constants.ab_t[t]
+    ab_prev = constants.ab_t[t_prev]
     
     # Predict x0 (original sample)
     x0_pred = ab_prev.sqrt() / ab.sqrt() * (x - sf * (1 - ab).sqrt() * pred_noise)
@@ -149,10 +149,10 @@ def denoise_ddpm(x, t_idx, eps, sf):
     Returns:
         torch.Tensor: Sample at timestep t-1.
     """
-    b = b_t[t_idx]
-    a = a_t[t_idx]
-    ab = ab_t[t_idx]
-    ab_prev = ab_t[t_idx - 1]
+    b = constants.b_t[t_idx]
+    a = constants.a_t[t_idx]
+    ab = constants.aconstants.b_t[t_idx]
+    ab_prev = constants.aconstants.b_t[t_idx - 1]
 
     # Estimate the clean sample x0
     x0_pred = (x - (1 - ab).sqrt() * eps) / ab.sqrt()
@@ -182,11 +182,11 @@ def sample_ddpm(model, radio_flux, sf, n, seed_mean, seed_std):
     Returns:
         history: np.ndarray of generated samples at each step.
     """
-    samples = torch.randn(1, X_SIZE).to(device) * seed_std + seed_mean
+    x = torch.randn(1, constants.X_SIZE).to(constants.device) * seed_std + seed_mean
     history = [x.squeeze().cpu().numpy()]
 
-    for t_idx in reversed(range(1, timesteps + 1)):
-        t = torch.tensor([t_idx / timesteps]).to(device)
+    for t_idx in reversed(range(1, constants.timesteps + 1)):
+        t = torch.tensor([t_idx / constants.timesteps]).to(constants.device)
         eps = model(x, noise_level=t, radio_flux=radio_flux)    # predict noise e_(x_t,t)
         x = denoise_ddpm(x, t_idx, eps, sf)
         history.append(x.squeeze().cpu().numpy())

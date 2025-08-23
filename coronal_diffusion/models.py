@@ -3,7 +3,7 @@ import torch.nn as nn
 import numpy as np
 import torch_harmonics as th
 import math
-from constants import X_SIZE
+from coronal_diffusion.constants import X_SIZE
 
 
 def fix_coeffs_batch(G, H):

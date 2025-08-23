@@ -4,12 +4,13 @@ import numpy as np
 import dask.array  as da
 from dask.diagnostics import ProgressBar
 
-DATA_SOURCE = "/data/dedasilv/coronal-diffusion-modeling/test_dataset.h5"
+import config
+
 
 
 def main():
     # Load scalers
-    with open("scalers.json") as fh:
+    with open(config.scalers_path) as fh:
         scalers = json.load(fh)
 
     mean = np.array(scalers["mean"])
@@ -17,7 +18,7 @@ def main():
 
     # Try to find good starting points within this normalized space
     # for different conditions
-    hdf = h5py.File(DATA_SOURCE)
+    hdf = h5py.File(config.test_dataset_path)
     X = (da.from_array(hdf['X']) - mean) / std
     radio_flux = da.from_array(hdf['radio_fluxes'])
 
@@ -26,8 +27,8 @@ def main():
     #radio_flux = radio_flux[:1000]
     
     tasks = [
-        ('seed_helper_max.json', radio_flux > 0.75),
-        ('seed_helper_min.json', radio_flux < 0.25),
+        (config.seed_helper_max, radio_flux > 0.75),
+        (config.seed_helper_min, radio_flux < 0.25),
     ]
 
     for out_file, mask in tasks:

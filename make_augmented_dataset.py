@@ -9,10 +9,9 @@ import tqdm
 import h5py
 import pandas as pd
 from matplotlib.dates import date2num
-from constants import X_SIZE
 
-
-DELTA_ROT = 1
+from coronal_diffusion.constants import X_SIZE
+import config
 
 
 def main(root_dir, out_file):
@@ -34,9 +33,9 @@ def main(root_dir, out_file):
     files.sort()
 
     hdf = h5py.File(out_file, "w")
-    items_shape = (2 * len(files) * 360 // DELTA_ROT, X_SIZE)
+    items_shape = (2 * len(files) * 360 // config.delta_rot, X_SIZE)
     items = hdf.create_dataset("X", items_shape, dtype=np.float32)
-    radio_fluxes = np.zeros((2 * len(files) * 360 // DELTA_ROT,), dtype=np.float32)
+    radio_fluxes = np.zeros((2 * len(files) * 360 // config.delta_rot,), dtype=np.float32)
 
     counter = 0
 
@@ -81,7 +80,7 @@ def enumerate_variations(file_path):
     yield coeffs.coeffs[0], coeffs.coeffs[1]
     yield flip_coeffs.coeffs[0], flip_coeffs.coeffs[1]
 
-    for rot in range(DELTA_ROT, 360, DELTA_ROT):
+    for rot in range(config.delta_rot, 360, config.delta_rot):
         rot_coeffs = coeffs.copy().rotate(alpha=rot, beta=0, gamma=0, degrees=True)
         flip_coeffs = rot_coeffs.copy().rotate(alpha=0, beta=180, gamma=0, degrees=True)
 
@@ -108,12 +107,7 @@ def process_file(file, df_radio):
         
     
 if __name__ == "__main__":
-    root_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_train"
-    out_file = "/data/dedasilv/coronal-diffusion-modeling/training_dataset.h5"
-    main(root_dir, out_file)
-
-    root_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test"
-    out_file = "/data/dedasilv/coronal-diffusion-modeling/test_dataset.h5"
-    main(root_dir, out_file)
+    main(config.train_wsa_dir, config.train_dataset_path)
+    main(config.test_wsa_dir, config.test_dataset_path)
 
     
