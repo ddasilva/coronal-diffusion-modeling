@@ -1,0 +1,7 @@
+checkpoints/*.pth
+runs
+plots/samples/
+
+*~
+__pycache__
+.ipynb_checkpoints
