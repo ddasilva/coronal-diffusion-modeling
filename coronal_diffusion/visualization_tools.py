@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 from ai import cs
 from matplotlib import pyplot as plt
 
-OUTER_BOUNDARY = 5
+OUTER_BOUNDARY = 2.5
 
 
 class SHVisualizer:
