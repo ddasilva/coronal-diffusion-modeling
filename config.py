@@ -22,7 +22,7 @@ num_workers = 8
 # FITS file directories and rotation delta
 train_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_train"
 test_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test"
-delta_rot = 360
+delta_rot = 1 # degrees
 
 # Scalers and seed helpers
 scalers_path = 'data/scalers.json'
@@ -38,8 +38,8 @@ seed_helper_min = 'data/seed_helper_min.json'
 plot_br = False
 plot_field_lines = True
 
-# Loss Tradeoff Parameters Between Harmonis MSE and
-# Magnetic Potential Loss Function Term (not used)
+# Loss Tradeoff Parameters Between Harmonis MSE and Magnetic Potential Loss
+# Function Term (not used for NeurIPS paper)
 harmonics_lambda = 1
 magnetic_lambda = 0
 
