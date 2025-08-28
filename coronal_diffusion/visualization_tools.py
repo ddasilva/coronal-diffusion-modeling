@@ -168,28 +168,29 @@ class SHVisualizer:
         )
         return fig
 
-    def plot_magnetogram(self, r=1.05, lim=2.5, sign=False):
+    def plot_magnetogram(self, r=1.05, lim=2.5, sign=False, ax=None):
         result, lat, lon = self.get_magnetogram(r)
         Br = result[:, 0].reshape(lat.shape) * 1e-5
         if sign:
             Br = np.sign(Br)
             lim = 1
-        
-        plt.figure(figsize=(10, 5))
-        plt.pcolor(lon, lat, Br, cmap="Grays", vmax=lim, vmin=-lim)
 
-        if sign:
+        if not ax:
+            plt.figure(figsize=(10, 5))
+            ax = plt.gca()
+            
+        ax.pcolor(lon, lat, Br, cmap="Grays", vmax=lim, vmin=-lim)
+
+        if sign and not ax:
             plt.title(f'Polarity at r={r} $R_\\odot$', fontsize=18)
             plt.colorbar().set_label('Polarity')
-        else:
+        elif not ax:
             plt.colorbar().set_label('Br (T)')
             plt.title(f'$B_r$ at r={r} $R_\\odot$', fontsize=18)
-
-    def plot_current_sheet(self, r=2.5):
-        self.plot_magnetogram(r=r, sign=True)
-        
-        
     
+    def plot_current_sheet(self, r=5, ax=None):
+        self.plot_magnetogram(r=r, sign=True, ax=ax)
+        
     def get_magnetogram(self, r):
         # Get magnetogram data
         lat_axis = np.arange(-89, 90, 1)
