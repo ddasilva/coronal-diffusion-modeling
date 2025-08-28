@@ -1,6 +1,6 @@
 # Coronal Diffusion Model
 
-This repository holds code to train and sample a generative diffusion model of the Solar Corona Magnetic Field. The code is trained using ADAPT-WSA simulation potential field solutions from the [SuryaBench])(https://huggingface.co/datasets/nasa-ibm-ai4science/surya-bench-coronal-extrapolation) dataset.
+This repository holds code to train and sample a generative diffusion model of the Solar Corona Magnetic Field. The code is trained using ADAPT-WSA simulation potential field solutions from the [SuryaBench](https://huggingface.co/datasets/nasa-ibm-ai4science/surya-bench-coronal-extrapolation) dataset.
 
 <img src="static/reverse_diffusion.gif">
 
