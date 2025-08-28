@@ -12,6 +12,11 @@ A publication is currently under review as a workshop paper at the [NeurIPS Mach
 
 Code is included to train the model, as well as running the model to generate samples. Examples of sampling the model can be fonud in the `notebooks/` directory. To train the model, the `train.py` script is run with no arguments, with configuration found in `config.py`.
 
-## Contact
+The full training process is:
 
-For questions and comments, the author can be contacted at [mail@danieldasilva.org](mailto:mail@danieldasilva.org), [daniel.e.dasilva@nasa.gov](mailto:daniel.e.dasilva@nasa.gov), or [ddasilva@umbc.edu](mailto:ddasilva@umbc.edu).
+```
+$ python make_augmented_dataset.py
+$ python write_scalers.py
+$ python write_seed_helpers.py
+$ python train.py
+```
