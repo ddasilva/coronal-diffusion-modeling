@@ -42,7 +42,3 @@ plot_field_lines = True
 # Function Term (not used for NeurIPS paper)
 harmonics_lambda = 1
 magnetic_lambda = 0
-
-# Paths to reference images used by plot_reference_images.py
-ref_min_path = '/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test/wsa_201010010800R000_ahmi.fits'
-ref_max_path = '/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test/wsa_201410110800R001_ahmi.fits'

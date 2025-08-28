@@ -1,6 +1,6 @@
 checkpoints/*.pth
 runs
-plots/samples/
+plots/*
 
 *~
 __pycache__

@@ -58,7 +58,7 @@ class SHVisualizer:
         step_size = 0.01  # Step size
         max_steps = 1000  # Maximum number of steps to trace
 
-        lat_values = np.linspace(-89.9, 89.9, grid_density, endpoint=False)
+        lat_values = np.linspace(-89.9, 89.9, grid_density//2, endpoint=False)
         lon_values = np.linspace(0, 360, grid_density, endpoint=False)
 
         field_lines = []
@@ -117,7 +117,8 @@ class SHVisualizer:
         )
 
         fig = self.plot(field_lines, colors, lim)
-    
+        fig.update_layout(showlegend=False)
+
         return fig
     
     def plot(self, field_lines, colors, lim):

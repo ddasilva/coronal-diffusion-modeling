@@ -84,7 +84,8 @@ def sample_ddim(model, radio_flux, sf, n, eta, seed_mean, seed_std):
     samples = torch.randn(1, constants.X_SIZE).to(constants.device) * seed_std + seed_mean
 
     # array to keep track of generated steps for plotting
-    intermediate = [] 
+    intermediate = [samples.squeeze().detach().cpu().numpy()] 
+    
     step_size = constants.timesteps // n
     for i in range(constants.timesteps, 0, -step_size):
         #print(f'sampling timestep {i:3d}', end='\r')
