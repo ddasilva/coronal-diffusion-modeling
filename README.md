@@ -4,9 +4,13 @@ This repository holds code to train and sample a generative diffusion model of t
 
 <img src="static/reverse_diffusion.gif">
 
+## Pretrained weights
+
+Pretrained weights are available on hugging face at [https://huggingface.co/ddasilva/coronal-diffusion-modeling](https://huggingface.co/ddasilva/coronal-diffusion-modeling).
+
 ## Publications
 
-A publication is currently under review as a workshop paper at the [NeurIPS Machine Learning and the Physical Sciences Workshop](https://ml4physicalsciences.github.io/).
+A publication preprint is available on arXiv at: [https://doi.org/10.48550/arXiv.2510.01441](https://doi.org/10.48550/arXiv.2510.01441)
 
 ## Running the Code
 
