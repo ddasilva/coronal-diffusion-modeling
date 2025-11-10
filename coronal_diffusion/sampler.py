@@ -12,7 +12,7 @@ def sample(
     weights_file=None,
     seed_helper=None,
     radio_flux=0,
-    nmax=90,
+    nmax=config.nmax,
     sf=1,
     n=20,
     eta=0.1,
@@ -32,7 +32,7 @@ def sample(
         seed_mean = torch.tensor(seed_helper_json["mean"], device=constants.device)
         seed_std = torch.tensor(seed_helper_json["std"], device=constants.device)
     else:
-        seed_mean, seed_std = torch.zeros(constants.X_SIZE, device=constants.device), torch.ones(constants.X_SIZE, device=constants.device)
+        seed_mean, seed_std = torch.zeros(config.X_SIZE, device=constants.device), torch.ones(config.X_SIZE, device=constants.device)
 
     if method == 'ddim':
         history = sample_ddim(model, radio_flux, sf, n, eta, seed_mean, seed_std)
@@ -81,7 +81,7 @@ def sample(
 @torch.no_grad()
 def sample_ddim(model, radio_flux, sf, n, eta, seed_mean, seed_std):
     # sample initial noise
-    samples = torch.randn(1, constants.X_SIZE).to(constants.device) * seed_std + seed_mean
+    samples = torch.randn(1, config.X_SIZE).to(constants.device) * seed_std + seed_mean
 
     # array to keep track of generated steps for plotting
     intermediate = [samples.squeeze().detach().cpu().numpy()] 
@@ -183,7 +183,7 @@ def sample_ddpm(model, radio_flux, sf, n, seed_mean, seed_std):
     Returns:
         history: np.ndarray of generated samples at each step.
     """
-    x = torch.randn(1, constants.X_SIZE).to(constants.device) * seed_std + seed_mean
+    x = torch.randn(1, config.X_SIZE).to(constants.device) * seed_std + seed_mean
     history = [x.squeeze().cpu().numpy()]
 
     for t_idx in reversed(range(1, constants.timesteps + 1)):

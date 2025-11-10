@@ -3,7 +3,8 @@ import torch.nn as nn
 import numpy as np
 import torch_harmonics as th
 import math
-from coronal_diffusion.constants import X_SIZE
+
+import config
 
 
 def fix_coeffs_batch(G, H):
@@ -130,7 +131,7 @@ class MagneticModel(nn.Module):
 
         self.nlat = 180
         self.nlon = 360
-        self.nmax = 90
+        self.nmax = config.nmax
         self.cutoff = np.tril_indices(self.nmax + 1)[0].size
         self.isht = th.InverseRealSHT(self.nlat, self.nlon, grid='equiangular', norm='ortho', lmax=self.nmax + 1, mmax=self.nmax + 1)
         self.default_r = np.arange(1.0, 2.55, .05)
@@ -169,7 +170,10 @@ class MagneticModel(nn.Module):
 
 
 class DiffusionModel(nn.Module):
-    def __init__(self, input_dim=X_SIZE, hidden_dim=X_SIZE, output_dim=X_SIZE):
+    def __init__(self,
+                 input_dim=config.X_SIZE,
+                 hidden_dim=config.X_SIZE,
+                 output_dim=config.X_SIZE):
         super(DiffusionModel, self).__init__()
         self.input_layer = nn.Linear(input_dim, hidden_dim)
         self.ln1 = nn.LayerNorm(hidden_dim)

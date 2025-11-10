@@ -10,7 +10,6 @@ import h5py
 import pandas as pd
 from matplotlib.dates import date2num
 
-from coronal_diffusion.constants import X_SIZE
 import config
 
 
@@ -33,7 +32,7 @@ def main(root_dir, out_file):
     files.sort()
 
     hdf = h5py.File(out_file, "w")
-    items_shape = (2 * len(files) * 360 // config.delta_rot, X_SIZE)
+    items_shape = (2 * len(files) * 360 // config.delta_rot, config.X_SIZE)
     items = hdf.create_dataset("X", items_shape, dtype=np.float32)
     radio_fluxes = np.zeros((2 * len(files) * 360 // config.delta_rot,), dtype=np.float32)
 
@@ -41,11 +40,11 @@ def main(root_dir, out_file):
 
     for file in tqdm.tqdm(files):
         results = process_file(file, df_radio)
-
-        for (G, H, radio_flux) in results:
+    
+        for (G, H, radio_flux) in results:    
             items[counter] = (
                 np.concatenate(
-                    [G[np.tril_indices(G.shape[0])], H[1:,1:][np.tril_indices(H.shape[0]-1)]]
+                    [G[np.tril_indices(config.nmax + 1)], H[1:,1:][np.tril_indices(config.nmax)]]
                 ).flatten()
             )
             radio_fluxes[counter] = radio_flux
