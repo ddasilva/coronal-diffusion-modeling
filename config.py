@@ -1,9 +1,13 @@
 # Name of the run, used for model checkpoints and tensorboard logs
-run_name = "experiment15-16harmonics"
+run_name = "experiment16-noiseinfl3"
 
 # Training settings
 epochs = 100
 batch_size = 128
+max_train_batches = 50_000
+max_test_batches = 10_000
+
+# Model settings
 X_SIZE = 8281
 nmax = 90
 
@@ -11,6 +15,7 @@ nmax = 90
 learning_rate = 0.0001
 scheduler_step_size = 1
 scheduler_gamma = 0.8
+noise_inflation = 3
 
 # Dataloader settings
 train_dataset_path = "/data/dedasilv/coronal-diffusion-modeling/training_dataset.h5"

@@ -143,12 +143,18 @@ def do_test_loop(
 
     with torch.no_grad():
         for batch_idx, (orig_coeffs, radio_flux) in enumerate(test_dataloader):
+            # Break if reached max batch
+            if batch_idx == config.max_test_batches:
+                break
+
+            # Move inputs to GPU
             orig_coeffs = orig_coeffs.to(constants.device)
             radio_flux = radio_flux.to(constants.device)
 
-            inputs = (orig_coeffs - scalers_mean) / scalers_std  # Normalize inputs
+            # Normalize inputs
+            inputs = (orig_coeffs - scalers_mean) / scalers_std 
 
-            true_noise = torch.randn_like(inputs)
+            true_noise = config.noise_inflation * torch.randn_like(inputs)
             t = torch.randint(1, constants.timesteps + 1, (inputs.shape[0],)).to(constants.device) 
             noisey_inputs = perturb_input(inputs, t, true_noise)
 
@@ -190,6 +196,10 @@ def do_train_loop(
     epoch_loss = 0.0
     
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
+        # Break if reached max batch
+        if batch_idx == config.max_train_batches:
+            break
+        
         # Move inputs to GPU 
         orig_coeffs = orig_coeffs.to(constants.device)
         radio_flux = radio_flux.to(constants.device)  
