@@ -152,8 +152,8 @@ def denoise_ddpm(x, t_idx, eps, sf):
     """
     b = constants.b_t[t_idx]
     a = constants.a_t[t_idx]
-    ab = constants.aconstants.b_t[t_idx]
-    ab_prev = constants.aconstants.b_t[t_idx - 1]
+    ab = constants.ab_t[t_idx]
+    ab_prev = constants.ab_t[t_idx - 1]
 
     # Estimate the clean sample x0
     x0_pred = (x - (1 - ab).sqrt() * eps) / ab.sqrt()
