@@ -12,10 +12,14 @@ class SHVisualizer:
     def __init__(self, G, H, normalization="ortho"):
         coeffs_array = np.array([G, H])
         self.coeffs = pyshtools.SHMagCoeffs.from_array(
-            coeffs_array, normalization=normalization, r0=1,
+            coeffs_array,
+            normalization=normalization,
+            r0=1,
         )
 
-    def trace_field_line(self, start_point, step_size, max_steps=100_000_000, closed_only=False):
+    def trace_field_line(
+        self, start_point, step_size, max_steps=100_000_000, closed_only=False
+    ):
         field_line = [start_point]
         color = "black"
 
@@ -58,7 +62,7 @@ class SHVisualizer:
         step_size = 0.01  # Step size
         max_steps = 1000  # Maximum number of steps to trace
 
-        lat_values = np.linspace(-89.9, 89.9, grid_density//2, endpoint=False)
+        lat_values = np.linspace(-89.9, 89.9, grid_density // 2, endpoint=False)
         lon_values = np.linspace(0, 360, grid_density, endpoint=False)
 
         field_lines = []
@@ -87,7 +91,7 @@ class SHVisualizer:
         lon_values = np.linspace(0, 359, grid_density)
 
         ch_map = np.ones((lat_values.size, lon_values.size), dtype=bool)
-        
+
         for i, lat_deg in enumerate(lat_values):
             for j, lon_deg in enumerate(lon_values):
                 for dir in [-1, 1]:
@@ -106,21 +110,22 @@ class SHVisualizer:
     def plot_coronal_holes(self, grid_density=10):
         lat_values, lon_values, ch_map = self.get_coronal_holes(grid_density)
         plt.pcolor(lon_values, lat_values, ch_map)
-        plt.colorbar().set_label('Coronal Hole')
-        
-    
+        plt.colorbar().set_label("Coronal Hole")
+
     def visualize_field_lines(
         self, r=1.1, grid_density=10, closed_only=False, lim=OUTER_BOUNDARY
     ):
         field_lines, colors = self._get_field_lines_on_grid(
-            r, grid_density, closed_only=closed_only,
+            r,
+            grid_density,
+            closed_only=closed_only,
         )
 
         fig = self.plot(field_lines, colors, lim)
         fig.update_layout(showlegend=False)
 
         return fig
-    
+
     def plot(self, field_lines, colors, lim):
         fig = go.Figure()
 
@@ -178,19 +183,19 @@ class SHVisualizer:
         if not ax:
             plt.figure(figsize=(10, 5))
             ax = plt.gca()
-            
+
         ax.pcolor(lon, lat, Br, cmap="Grays", vmax=lim, vmin=-lim)
 
         if sign and not ax:
-            plt.title(f'Polarity at r={r} $R_\\odot$', fontsize=18)
-            plt.colorbar().set_label('Polarity')
+            plt.title(f"Polarity at r={r} $R_\\odot$", fontsize=18)
+            plt.colorbar().set_label("Polarity")
         elif not ax:
-            plt.colorbar().set_label('Br (T)')
-            plt.title(f'$B_r$ at r={r} $R_\\odot$', fontsize=18)
-    
+            plt.colorbar().set_label("Br (T)")
+            plt.title(f"$B_r$ at r={r} $R_\\odot$", fontsize=18)
+
     def plot_current_sheet(self, r=5, ax=None):
         self.plot_magnetogram(r=r, sign=True, ax=ax)
-        
+
     def get_magnetogram(self, r):
         # Get magnetogram data
         lat_axis = np.arange(-89, 90, 1)
@@ -199,9 +204,11 @@ class SHVisualizer:
         lat, lon = np.meshgrid(lat_axis, lon_axis, indexing="ij")
 
         result = np.array(
-            self.coeffs.expand(r=[r] * lat.size, lat=lat.flatten(), lon=lon.flatten(), degrees=True)
+            self.coeffs.expand(
+                r=[r] * lat.size, lat=lat.flatten(), lon=lon.flatten(), degrees=True
+            )
         ).squeeze()
- 
+
         return result, lat, lon
 
 

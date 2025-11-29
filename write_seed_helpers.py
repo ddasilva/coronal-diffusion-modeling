@@ -1,11 +1,10 @@
 import h5py
 import json
 import numpy as np
-import dask.array  as da
+import dask.array as da
 from dask.diagnostics import ProgressBar
 
 import config
-
 
 
 def main():
@@ -19,13 +18,13 @@ def main():
     # Try to find good starting points within this normalized space
     # for different conditions
     hdf = h5py.File(config.test_dataset_path)
-    X = (da.from_array(hdf['X']) - mean) / std
-    radio_flux = da.from_array(hdf['radio_fluxes'])
+    X = (da.from_array(hdf["X"]) - mean) / std
+    radio_flux = da.from_array(hdf["radio_fluxes"])
 
     # uncomment to make code run faster for testing
-    #X = X[:1000]
-    #radio_flux = radio_flux[:1000]
-    
+    # X = X[:1000]
+    # radio_flux = radio_flux[:1000]
+
     tasks = [
         (config.seed_helper_max, radio_flux > 0.75),
         (config.seed_helper_min, radio_flux < 0.25),
@@ -41,17 +40,16 @@ def main():
 
         with ProgressBar():
             mean_helper, std_helper = da.compute(mean_helper, std_helper)
-        
+
         out = {
             "mean": mean_helper.tolist(),
             "std": std_helper.tolist(),
         }
-        
+
         with open(out_file, "w") as fh:
             json.dump(out, fh, indent=4)
             print(f"Seed helpers written to {out_file}")
 
-            
+
 if __name__ == "__main__":
     main()
-

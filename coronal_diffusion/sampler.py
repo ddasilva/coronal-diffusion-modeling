@@ -18,42 +18,47 @@ def sample(
     n=20,
     eta=0.1,
     return_history=False,
-    method='ddim',
+    method="ddim",
 ):
     # Run deterministic diffusion process nsteps times
     if model is None:
         model = models.DiffusionModel().to(constants.device)
         model.load_state_dict(torch.load(weights_file, map_location=constants.device))
 
-    radio_flux = torch.from_numpy(np.array([radio_flux]).reshape(1, -1)).float().to(constants.device)
+    radio_flux = (
+        torch.from_numpy(np.array([radio_flux]).reshape(1, -1))
+        .float()
+        .to(constants.device)
+    )
 
     # Load scalers
     with open(config.scalers_path) as fh:
         scalers = json.load(fh)
-        
+
     stdG, stdH = flat_to_GH(np.array(scalers["std"]))
     stdG = torch.tensor(stdG)
     stdH = torch.tensor(stdH)
     std = stdG, stdH
-    
-    if method == 'ddim':
+
+    if method == "ddim":
         history, history_eps = sample_ddim(model, radio_flux, sf, n, eta, std)
-    elif method == 'ddpm':
+    elif method == "ddpm":
         history = sample_ddpm(model, radio_flux, sf, n, seed_mean, seed_std)
         history_eps = None
     else:
         raise ValueError(f"Unknown sampling method: {method}")
-    
+
     if not return_history:
         history = [history[-1]]
 
     return_value = []
 
-                   
     for img in history:
         img_scaled = np.sinh(img) * sf
-        coeffs = model.sht(torch.tensor(img_scaled, device=constants.device)).cpu().numpy()
-        
+        coeffs = (
+            model.sht(torch.tensor(img_scaled, device=constants.device)).cpu().numpy()
+        )
+
         # Convert to G and H Matrices
         G = coeffs.real
         H = coeffs.imag
@@ -66,26 +71,25 @@ def sample(
     return return_value[-1]
 
 
-
 # sample quickly using DDIM
 @torch.no_grad()
 def sample_ddim(model, radio_flux, sf, n, eta, std):
     # sample initial noise
-    shape = (1, config.nmax + 1, config.nmax + 1)    
+    shape = (1, config.nmax + 1, config.nmax + 1)
     coeffs = torch.zeros(shape, dtype=torch.complex64)
     coeffs += (
-        torch.randn(shape) * torch.asinh(std[0] / asinh_sf) +
-        torch.randn(shape) * torch.asinh(std[1] / asinh_sf) * 1j
+        torch.randn(shape) * torch.asinh(std[0] / asinh_sf)
+        + torch.randn(shape) * torch.asinh(std[1] / asinh_sf) * 1j
     )
     coeffs = torch.sinh(coeffs) * asinh_sf
     coeffs = coeffs.to(constants.device)
 
     img = model.isht(coeffs)
     img = torch.asinh(img / asinh_sf)
-    
+
     # Loop
     step_size = constants.timesteps // n
-    img_all = [img.squeeze().detach().cpu().numpy()]     
+    img_all = [img.squeeze().detach().cpu().numpy()]
     eps_all = []
 
     for i in range(constants.timesteps, 0, -step_size):
@@ -93,12 +97,12 @@ def sample_ddim(model, radio_flux, sf, n, eta, std):
 
         eps = model(img, noise_level=t, radio_flux=radio_flux, return_noise=True)
         eps_all.append(eps.squeeze().detach().cpu().numpy())
-        
+
         img = denoise_ddim(img, i, i - step_size, eps, sf, eta, std, model)
         img_rescaled = torch.sinh(img) * constants.asinh_sf
 
         img_all.append(eps.squeeze().detach().cpu().numpy())
-        #img_all.append(model.sht(img_rescaled).squeeze().detach().cpu().numpy())
+        # img_all.append(model.sht(img_rescaled).squeeze().detach().cpu().numpy())
 
     history = np.stack(img_all)
     history_eps = np.stack(eps_all)
@@ -106,7 +110,7 @@ def sample_ddim(model, radio_flux, sf, n, eta, std):
     return history, history_eps
 
 
-# define sampling function for DDIM   
+# define sampling function for DDIM
 # removes the noise using ddim
 def denoise_ddim(x, t, t_prev, pred_noise, sf, eta, std, model):
     """
@@ -125,27 +129,27 @@ def denoise_ddim(x, t, t_prev, pred_noise, sf, eta, std, model):
     """
     ab = constants.ab_t[t]
     ab_prev = constants.ab_t[t_prev]
-    
+
     # Predict x0 (original sample)
     x0_pred = ab_prev.sqrt() / ab.sqrt() * (x - sf * (1 - ab).sqrt() * pred_noise)
-    
+
     # Directional update
     dir_xt = sf * (1 - ab_prev).sqrt() * pred_noise
-    
+
     # Add stochasticity
     if eta > 0:
-        shape = (1, config.nmax + 1, config.nmax + 1)    
+        shape = (1, config.nmax + 1, config.nmax + 1)
         noise = torch.zeros(shape, dtype=torch.complex64)
         noise += (
-            torch.randn(shape) * torch.asinh(std[0] / asinh_sf) +
-            torch.randn(shape) * torch.asinh(std[1] / asinh_sf) * 1j
+            torch.randn(shape) * torch.asinh(std[0] / asinh_sf)
+            + torch.randn(shape) * torch.asinh(std[1] / asinh_sf) * 1j
         )
         noise = torch.sinh(noise) * asinh_sf
         noise = noise.to(constants.device)
         x_scaled = torch.sinh(x) * asinh_sf
         img_noise = model.isht(model.sht(x_scaled) + noise) - x_scaled
         img_noise = torch.asinh(img_noise) / asinh_sf
-        
+
         sigma = eta * ((1 - ab_prev) / (1 - ab)).sqrt() * (1 - ab / ab_prev).sqrt()
         dir_xt += sigma * img_noise
 
@@ -175,8 +179,9 @@ def denoise_ddpm(x, t_idx, eps, sf):
     x0_pred = (x - (1 - ab).sqrt() * eps) / ab.sqrt()
 
     # Compute posterior mean and variance
-    mean = (ab_prev.sqrt() * b / (1 - ab)) * x0_pred + \
-           ((1 - ab_prev) * a.sqrt() / (1 - ab)) * x
+    mean = (ab_prev.sqrt() * b / (1 - ab)) * x0_pred + (
+        (1 - ab_prev) * a.sqrt() / (1 - ab)
+    ) * x
 
     # Sample from posterior distribution
     if t_idx > 1:
@@ -204,7 +209,7 @@ def sample_ddpm(model, radio_flux, sf, n, seed_mean, seed_std):
 
     for t_idx in reversed(range(1, constants.timesteps + 1)):
         t = torch.tensor([t_idx / constants.timesteps]).to(constants.device)
-        eps = model(x, noise_level=t, radio_flux=radio_flux)    # predict noise e_(x_t,t)
+        eps = model(x, noise_level=t, radio_flux=radio_flux)  # predict noise e_(x_t,t)
         x = denoise_ddpm(x, t_idx, eps, sf)
         history.append(x.squeeze().cpu().numpy())
 

@@ -135,7 +135,7 @@ def do_field_line_plot(config, model, epoch, writer):
 
         if not np.isfinite([G, H]).all():
             continue
-            
+
         vis = vt.SHVisualizer(G, H)
         fig = vis.visualize_field_lines(r=1.1, grid_density=40)
 
@@ -212,7 +212,7 @@ def do_train_loop(
     # Training: Loop through batches
     epoch_loss = 0.0
     sf = constants.asinh_sf
-    
+
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
         # Break if reached max batch
         if batch_idx == config.max_train_batches:
@@ -240,12 +240,12 @@ def do_train_loop(
 
         t = torch.randint(1, constants.timesteps + 1, (orig_coeffs.shape[0],)).to(
             constants.device
-        )        
+        )
         perturbed_coeffs = perturb_input(orig_coeffs, t, true_noise)
-        
+
         img_with_noise = model.isht(perturbed_coeffs).float()
         img_with_noise = torch.asinh(img_with_noise / sf)
-        
+
         img_noise = img_with_noise - img_true
 
         noise_level = t / constants.timesteps
@@ -296,7 +296,12 @@ def do_train_loop(
 
 @torch.no_grad()
 def do_test_loop(
-    model, test_dataloader, scalers_std, epoch, config, writer, 
+    model,
+    test_dataloader,
+    scalers_std,
+    epoch,
+    config,
+    writer,
 ):
     model.eval()
 
@@ -312,7 +317,7 @@ def do_test_loop(
     # Testing: Loop through batches
     epoch_loss = 0.0
     sf = constants.asinh_sf
-    
+
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
         # Break if reached max batch
         if batch_idx == config.max_test_batches:
@@ -340,12 +345,12 @@ def do_test_loop(
 
         t = torch.randint(1, constants.timesteps + 1, (orig_coeffs.shape[0],)).to(
             constants.device
-        )        
+        )
         perturbed_coeffs = perturb_input(orig_coeffs, t, true_noise)
-        
+
         img_with_noise = model.isht(perturbed_coeffs).float()
         img_with_noise = torch.asinh(img_with_noise / sf)
-        
+
         img_noise = img_with_noise - img_true
 
         noise_level = t / constants.timesteps
@@ -406,14 +411,12 @@ def main():
             optimizer,
         )
 
-        do_test_loop(
-            model, test_dataloader, scalers_std, epoch, config, writer
-        )
+        do_test_loop(model, test_dataloader, scalers_std, epoch, config, writer)
 
         # Do plotting every plot_freq iterations
         if config.plot_br:
             do_br_plot(config, model, epoch, writer)
-           
+
         if config.plot_field_lines:
             do_field_line_plot(config, model, epoch, writer)
 
