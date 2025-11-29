@@ -146,12 +146,15 @@ def denoise_ddim(x, t, t_prev, pred_noise, sf, eta, std, model):
         )
         noise = torch.sinh(noise) * asinh_sf
         noise = noise.to(constants.device)
-        x_scaled = torch.sinh(x) * asinh_sf
-        img_noise = model.isht(model.sht(x_scaled) + noise) - x_scaled
-        img_noise = torch.asinh(img_noise) / asinh_sf
 
         sigma = eta * ((1 - ab_prev) / (1 - ab)).sqrt() * (1 - ab / ab_prev).sqrt()
-        dir_xt += sigma * img_noise
+        
+        img_noise = model.isht(sigma * noise)
+        img_noise = torch.asinh(img_noise / asinh_sf)
+        dir_xt += img_noise
+
+        #sigma = eta * ((1 - ab_prev) / (1 - ab)).sqrt() * (1 - ab / ab_prev).sqrt()
+        #dir_xt += sigma * img_noise
 
     return x0_pred + dir_xt
 
