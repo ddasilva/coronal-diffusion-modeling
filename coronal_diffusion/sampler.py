@@ -4,13 +4,14 @@ import torch
 import numpy as np
 
 from coronal_diffusion import constants, models
+from coronal_diffusion.constants import asinh_sf
+from coronal_diffusion.utils import flat_to_GH
 import config
 
 
 def sample(
     model=None,
     weights_file=None,
-    seed_helper=None,
     radio_flux=0,
     nmax=config.nmax,
     sf=1,
@@ -25,50 +26,39 @@ def sample(
         model.load_state_dict(torch.load(weights_file, map_location=constants.device))
 
     radio_flux = torch.from_numpy(np.array([radio_flux]).reshape(1, -1)).float().to(constants.device)
-    
-    if seed_helper:
-        with open(seed_helper) as fh:
-            seed_helper_json = json.load(fh)
-        seed_mean = torch.tensor(seed_helper_json["mean"], device=constants.device)
-        seed_std = torch.tensor(seed_helper_json["std"], device=constants.device)
-    else:
-        seed_mean, seed_std = torch.zeros(config.X_SIZE, device=constants.device), torch.ones(config.X_SIZE, device=constants.device)
 
+    # Load scalers
+    with open(config.scalers_path) as fh:
+        scalers = json.load(fh)
+        
+    stdG, stdH = flat_to_GH(np.array(scalers["std"]))
+    stdG = torch.tensor(stdG)
+    stdH = torch.tensor(stdH)
+    std = stdG, stdH
+    
     if method == 'ddim':
-        history = sample_ddim(model, radio_flux, sf, n, eta, seed_mean, seed_std)
+        history, history_eps = sample_ddim(model, radio_flux, sf, n, eta, std)
     elif method == 'ddpm':
         history = sample_ddpm(model, radio_flux, sf, n, seed_mean, seed_std)
+        history_eps = None
     else:
         raise ValueError(f"Unknown sampling method: {method}")
     
     if not return_history:
         history = [history[-1]]
 
-    # Load scalers
-    with open(config.scalers_path) as fh:
-        scalers = json.load(fh)
-
-    mean = np.array(scalers["mean"])
-    std = np.array(scalers["std"])
     return_value = []
 
-    for input_np in history:
-        # Descale
-        input_np = input_np * std + mean
-
+                   
+    for img in history:
+        img_scaled = np.sinh(img) * sf
+        coeffs = model.sht(torch.tensor(img_scaled, device=constants.device)).cpu().numpy()
+        
         # Convert to G and H Matrices
-        G = np.zeros((nmax + 1, nmax + 1))
-        H = np.zeros((nmax + 1, nmax + 1))
-        Htemp = np.zeros((nmax, nmax))
+        G = coeffs.real
+        H = coeffs.imag
 
-        cutoff = np.tril_indices(nmax + 1)[0].size
-
-        G[np.tril_indices(nmax + 1)] = input_np[:cutoff]
-        Htemp[np.tril_indices(nmax)] = input_np[cutoff:]
-
-        H[1:, 1:] = Htemp
-
-        return_value.append((G, H))
+        return_value.append((img, (G, H)))
 
     if return_history:
         return return_value
@@ -79,31 +69,46 @@ def sample(
 
 # sample quickly using DDIM
 @torch.no_grad()
-def sample_ddim(model, radio_flux, sf, n, eta, seed_mean, seed_std):
+def sample_ddim(model, radio_flux, sf, n, eta, std):
     # sample initial noise
-    samples = torch.randn(1, config.X_SIZE).to(constants.device) * seed_std + seed_mean
+    shape = (1, config.nmax + 1, config.nmax + 1)    
+    coeffs = torch.zeros(shape, dtype=torch.complex64)
+    coeffs += (
+        torch.randn(shape) * torch.asinh(std[0] / asinh_sf) +
+        torch.randn(shape) * torch.asinh(std[1] / asinh_sf) * 1j
+    )
+    coeffs = torch.sinh(coeffs) * asinh_sf
+    coeffs = coeffs.to(constants.device)
 
-    # array to keep track of generated steps for plotting
-    intermediate = [samples.squeeze().detach().cpu().numpy()] 
+    img = model.isht(coeffs)
+    img = torch.asinh(img / asinh_sf)
     
+    # Loop
     step_size = constants.timesteps // n
-    for i in range(constants.timesteps, 0, -step_size):
-        #print(f'sampling timestep {i:3d}', end='\r')
+    img_all = [img.squeeze().detach().cpu().numpy()]     
+    eps_all = []
 
-        # reshape time tensor
+    for i in range(constants.timesteps, 0, -step_size):
         t = torch.tensor([i / constants.timesteps])[:].to(constants.device)
 
-        eps = model(samples, noise_level=t, radio_flux=radio_flux)    # predict noise e_(x_t,t)
-        samples = denoise_ddim(samples, i, i - step_size, eps, sf, eta)
-        intermediate.append(samples.squeeze().detach().cpu().numpy())
+        eps = model(img, noise_level=t, radio_flux=radio_flux, return_noise=True)
+        eps_all.append(eps.squeeze().detach().cpu().numpy())
+        
+        img = denoise_ddim(img, i, i - step_size, eps, sf, eta, std, model)
+        img_rescaled = torch.sinh(img) * constants.asinh_sf
 
-    history = np.stack(intermediate)
-    return history
+        img_all.append(eps.squeeze().detach().cpu().numpy())
+        #img_all.append(model.sht(img_rescaled).squeeze().detach().cpu().numpy())
+
+    history = np.stack(img_all)
+    history_eps = np.stack(eps_all)
+
+    return history, history_eps
 
 
 # define sampling function for DDIM   
 # removes the noise using ddim
-def denoise_ddim(x, t, t_prev, pred_noise, sf, eta=0.0):
+def denoise_ddim(x, t, t_prev, pred_noise, sf, eta, std, model):
     """
     Denoise using DDIM with optional stochasticity controlled by eta.
 
@@ -129,9 +134,20 @@ def denoise_ddim(x, t, t_prev, pred_noise, sf, eta=0.0):
     
     # Add stochasticity
     if eta > 0:
-        noise = torch.randn_like(x)  # Random noise
+        shape = (1, config.nmax + 1, config.nmax + 1)    
+        noise = torch.zeros(shape, dtype=torch.complex64)
+        noise += (
+            torch.randn(shape) * torch.asinh(std[0] / asinh_sf) +
+            torch.randn(shape) * torch.asinh(std[1] / asinh_sf) * 1j
+        )
+        noise = torch.sinh(noise) * asinh_sf
+        noise = noise.to(constants.device)
+        x_scaled = torch.sinh(x) * asinh_sf
+        img_noise = model.isht(model.sht(x_scaled) + noise) - x_scaled
+        img_noise = torch.asinh(img_noise) / asinh_sf
+        
         sigma = eta * ((1 - ab_prev) / (1 - ab)).sqrt() * (1 - ab / ab_prev).sqrt()
-        dir_xt += sigma * noise
+        dir_xt += sigma * img_noise
 
     return x0_pred + dir_xt
 

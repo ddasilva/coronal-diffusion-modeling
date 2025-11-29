@@ -1,225 +1,356 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import torch_harmonics as th
 import math
 
+from coronal_diffusion.constants import asinh_sf
 import config
-
-
-def fix_coeffs_batch(G, H):
-    """
-    Batch-vectorized conversion of real spherical harmonics coefficients (G and H) to a single set of complex coefficients.
-    
-    Args:
-        G (torch.Tensor): Real spherical harmonics coefficients G_l^m
-                         Shape: (batch_size, max_degree + 1, max_degree + 1) or 
-                                (batch_size, flattened_size)
-        H (torch.Tensor): Real spherical harmonics coefficients H_l^m  
-                         Shape: (batch_size, max_degree + 1, max_degree + 1) or
-                                (batch_size, flattened_size)
-    
-    Returns:
-        torch.Tensor: Complex coefficients combining G and H
-                      Shape: (batch_size, max_degree + 1, max_degree + 1)
-    """
-    # Ensure inputs are torch tensors
-    if not isinstance(G, torch.Tensor):
-        G = torch.tensor(G, dtype=torch.float32)
-    if not isinstance(H, torch.Tensor):
-        H = torch.tensor(H, dtype=torch.float32)
-    
-    # Handle different input shapes
-    if G.dim() == 3:
-        batch_size, max_degree_plus_1, _ = G.shape
-        max_degree = max_degree_plus_1 - 1
-    elif G.dim() == 2:
-        batch_size = G.shape[0]
-        flattened_size = G.shape[1]
-        max_degree = int(np.sqrt(flattened_size)) - 1
-        max_degree_plus_1 = max_degree + 1
-        
-        # Reshape to (batch_size, max_degree + 1, max_degree + 1)
-        G = G.reshape(batch_size, max_degree_plus_1, max_degree_plus_1)
-        H = H.reshape(batch_size, max_degree_plus_1, max_degree_plus_1)
-    else:
-        raise ValueError(f"Expected G to have 2 or 3 dimensions, got {G.dim()}")
-    
-    device = G.device
-    
-    # Create masks for different regions (same for all batches)
-    l_indices, m_indices = torch.meshgrid(
-        torch.arange(max_degree + 1, device=device),
-        torch.arange(max_degree + 1, device=device),
-        indexing='ij'
-    )
-    
-    # Valid coefficient mask: m <= l
-    valid_mask = m_indices <= l_indices
-    
-    # Initialize complex coefficient array for the entire batch
-    coeffs = torch.zeros((batch_size, max_degree + 1, max_degree + 1), dtype=torch.complex64, device=device)
-    
-    # Handle m = 0 case (purely real) - vectorized across batch
-    coeffs[:, valid_mask & (m_indices == 0)] = G[:, valid_mask & (m_indices == 0)].to(torch.complex64)
-    
-    # Handle m > 0 case vectorized across batch
-    # coeffs_l^m = G_l^m - i*H_l^m
-    coeffs[:, valid_mask & (m_indices > 0)] = G[:, valid_mask & (m_indices > 0)] - 1j * H[:, valid_mask & (m_indices > 0)]
-    
-    return coeffs
-
-# Alternative version with explicit broadcasting (more memory efficient for very large batches)
-def fix_coeffs_batch_broadcast(G, H):
-    """
-    Memory-efficient batch-vectorized version using explicit broadcasting.
-    """
-    
-    # Ensure inputs are torch tensors
-    if not isinstance(G, torch.Tensor):
-        G = torch.tensor(G, dtype=torch.float32)
-    if not isinstance(H, torch.Tensor):
-        H = torch.tensor(H, dtype=torch.float32)
-    
-    # Handle different input shapes
-    if G.dim() == 3:
-        batch_size, max_degree_plus_1, _ = G.shape
-        max_degree = max_degree_plus_1 - 1
-    elif G.dim() == 2:
-        batch_size = G.shape[0]
-        flattened_size = G.shape[1]
-        max_degree = int(np.sqrt(flattened_size)) - 1
-        max_degree_plus_1 = max_degree + 1
-        G = G.reshape(batch_size, max_degree_plus_1, max_degree_plus_1)
-        H = H.reshape(batch_size, max_degree_plus_1, max_degree_plus_1)
-    else:
-        raise ValueError(f"Expected G to have 2 or 3 dimensions, got {G.dim()}")
-    
-    device = G.device
-    
-    # Create index tensors
-    l_indices = torch.arange(max_degree + 1, device=device).unsqueeze(1)  # (max_degree+1, 1)
-    m_indices = torch.arange(max_degree + 1, device=device).unsqueeze(0)  # (1, max_degree+1)
-    
-    # Create masks
-    valid_mask = m_indices <= l_indices
-    m_zero_mask = (m_indices == 0) & valid_mask
-    m_positive_mask = (m_indices > 0) & valid_mask
-    
-    # Initialize output tensors
-    C = torch.zeros_like(G, dtype=torch.complex64)
-    S = torch.zeros_like(G, dtype=torch.complex64)
-    
-    # Apply transformations with broadcasting
-    # m = 0 case
-    C = torch.where(m_zero_mask.unsqueeze(0), G.to(torch.complex64), C)
-    
-    # m > 0 case
-    complex_transform_c = (G - 1j * H) 
-    complex_transform_s = (G + 1j * H) 
-    
-    C = torch.where(m_positive_mask.unsqueeze(0), complex_transform_c, C)
-    S = torch.where(m_positive_mask.unsqueeze(0), complex_transform_s, S)
-    
-    return C, S
-
-
-class MagneticModel(nn.Module):
-
-    def __init__(self):
-        super(MagneticModel, self).__init__()
-
-        self.nlat = 180
-        self.nlon = 360
-        self.nmax = config.nmax
-        self.cutoff = np.tril_indices(self.nmax + 1)[0].size
-        self.isht = th.InverseRealSHT(self.nlat, self.nlon, grid='equiangular', norm='ortho', lmax=self.nmax + 1, mmax=self.nmax + 1)
-        self.default_r = np.arange(1.0, 2.55, .05)
-
-    def forward(self, out, r=None, potential=True):
-        if r is None:
-            r = self.default_r
-
-        batch_size = out.shape[0]
-        G = torch.zeros((batch_size, self.nmax + 1, self.nmax + 1)).to(out.device)
-        H = torch.zeros((batch_size, self.nmax + 1, self.nmax + 1)).to(out.device)
-
-        for i in range(batch_size):
-            G[i][np.tril_indices(self.nmax + 1)] = out[i, :self.cutoff]
-            H[i][1:, 1:][np.tril_indices(self.nmax)] = out[i, self.cutoff:]
-
-        # Scale coefficients
-        n = torch.arange(self.nmax + 1, dtype=torch.float32, device=out.device).view(-1, 1)
-        
-        if not potential:
-            # Br scaling
-            scale = (n + 1).repeat(1, self.nmax + 1)
-            G = G * scale
-            H = H * scale
-
-        base_coeffs = fix_coeffs_batch(G, H)
-        output_list = []
-
-        for rvalue in r:
-            coeffs = base_coeffs * (1 / rvalue**(n + 1))
-            output_list.append(self.isht(coeffs))
-
-        output = torch.stack(output_list, dim=1)  # Shape: (batch_size, len(r), nlat, nlon)
-
-        return output
+from config import nmax
 
 
 class DiffusionModel(nn.Module):
-    def __init__(self,
-                 input_dim=config.X_SIZE,
-                 hidden_dim=config.X_SIZE,
-                 output_dim=config.X_SIZE):
-        super(DiffusionModel, self).__init__()
-        self.input_layer = nn.Linear(input_dim, hidden_dim)
-        self.ln1 = nn.LayerNorm(hidden_dim)
-        self.act1 = nn.LeakyReLU(0.1)
-        self.hidden2 = nn.Linear(hidden_dim, hidden_dim)
-        self.ln2 = nn.LayerNorm(hidden_dim)
-        self.act2 = nn.LeakyReLU(0.1)
-        self.final = nn.Linear(hidden_dim, output_dim)
-        self.context_linear = nn.Linear(1, hidden_dim)
-        self.context_act = nn.LeakyReLU(0.1)
-        self.context_proj = nn.Linear(hidden_dim, hidden_dim)
-        self.noise_linear = nn.Linear(1, hidden_dim)
-        self.noise_act = nn.LeakyReLU(0.1)
-        self.noise_embed = nn.Linear(hidden_dim, hidden_dim)        
-        if input_dim != hidden_dim:
-            self.residual_proj = nn.Linear(input_dim, hidden_dim)
+
+    def __init__(self):
+        super().__init__()
+
+        nlat = 90
+        nlon = 180
+        self.isht = th.InverseRealSHT(nlat=nlat, nlon=nlon, lmax=config.nmax + 1, norm='ortho')
+        self.sht = th.RealSHT(nlat=nlat, nlon=nlon, lmax=config.nmax + 1, norm='ortho')
+        self.unet = DiffusionUNet(
+            in_channels=1,
+            out_channels=1,
+            base_channels=64,
+            channel_multipliers=(1, 2, 4, 8),
+            #channel_multipliers=(1, 2, 4),
+            num_res_blocks=2,
+            attention_levels=(2, 3)
+        )
+
+    def forward(self, img_with_noise, noise_level, radio_flux, return_noise=False):    
+        img_noise = self.unet(img_with_noise[:, None, :, :], noise_level, radio_flux)
+        img_noise = img_noise[:, 0]    
+
+        return img_noise
+
+class CircularConv2d(nn.Module):
+    """2D Convolution with circular padding on longitude (width) dimension"""
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 
+                              stride=stride, padding=0, bias=False)
+        self.padding = padding if isinstance(padding, tuple) else (padding, padding)
+        
+    def forward(self, x):
+        # Circular padding on width (longitude), regular padding on height (latitude)
+        x = F.pad(x, (self.padding[1], self.padding[1], 0, 0), mode='circular')
+        x = F.pad(x, (0, 0, self.padding[0], self.padding[0]), mode='constant', value=0)
+        return self.conv(x)
+
+
+class SinusoidalPositionEmbedding(nn.Module):
+    """Sinusoidal time embeddings for diffusion timestep"""
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, t):
+        device = t.device
+        half_dim = self.dim // 2
+        embeddings = math.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
+        embeddings = t[:, None] * embeddings[None, :]
+        embeddings = torch.cat([embeddings.sin(), embeddings.cos()], dim=-1)
+        return embeddings
+
+
+class AttentionBlock(nn.Module):
+    """Self-attention block"""
+    def __init__(self, channels, num_heads=4):
+        super().__init__()
+        self.num_heads = num_heads
+        self.norm = nn.GroupNorm(get_num_groups(channels), channels)
+        self.qkv = nn.Conv2d(channels, channels * 3, kernel_size=1)
+        self.proj = nn.Conv2d(channels, channels, kernel_size=1)
+        
+    def forward(self, x):
+        B, C, H, W = x.shape
+        h = self.norm(x)
+        
+        qkv = self.qkv(h)
+        q, k, v = qkv.chunk(3, dim=1)
+        
+        # Reshape for multi-head attention
+        q = q.view(B, self.num_heads, C // self.num_heads, H * W).transpose(2, 3)
+        k = k.view(B, self.num_heads, C // self.num_heads, H * W).transpose(2, 3)
+        v = v.view(B, self.num_heads, C // self.num_heads, H * W).transpose(2, 3)
+        
+        # Attention
+        attn = torch.softmax(q @ k.transpose(-2, -1) / math.sqrt(C // self.num_heads), dim=-1)
+        h = (attn @ v).transpose(2, 3).reshape(B, C, H, W)
+        
+        h = self.proj(h)
+        return x + h
+
+
+class Downsample(nn.Module):
+    """Downsampling with circular padding on longitude"""
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = CircularConv2d(channels, channels, kernel_size=3, stride=2, padding=1)
+    
+    def forward(self, x):
+        return self.conv(x)
+
+
+class Upsample(nn.Module):
+    """Upsampling with circular convolution"""
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = CircularConv2d(channels, channels, kernel_size=3, padding=1)
+    
+    def forward(self, x):
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        return self.conv(x)
+
+
+class DiffusionUNet(nn.Module):
+    """
+    UNet for diffusion model on 90x180 (lat, lon) images
+    
+    Args:
+        in_channels: Number of input image channels
+        out_channels: Number of output image channels
+        base_channels: Base number of channels (default: 64)
+        channel_multipliers: Channel multipliers for each resolution level
+        num_res_blocks: Number of residual blocks per level
+        attention_levels: Which levels to apply attention (e.g., [1, 2])
+        dropout: Dropout rate
+    """
+    def __init__(
+        self,
+        in_channels=1,
+        out_channels=1,
+        base_channels=64,
+        channel_multipliers=(1, 2, 4, 8),
+        num_res_blocks=2,
+        attention_levels=(2, 3),
+        dropout=0.1
+    ):
+        super().__init__()
+        
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        
+        # Time embedding
+        time_emb_dim = base_channels * 4
+        self.time_embedding = nn.Sequential(
+            SinusoidalPositionEmbedding(base_channels),
+            nn.Linear(base_channels, time_emb_dim),
+            nn.SiLU(),
+            nn.Linear(time_emb_dim, time_emb_dim)
+        )
+        
+        # Initial convolution
+        self.conv_in = CircularConv2d(in_channels, base_channels, kernel_size=3, padding=1)
+        
+        # Encoder
+        self.encoder = nn.ModuleList()
+        channels_list = [base_channels]
+        in_ch = base_channels
+        
+        for level, mult in enumerate(channel_multipliers):
+            out_ch = base_channels * mult
+            
+            for _ in range(num_res_blocks):
+                layers = [ResidualBlock(in_ch, out_ch, time_emb_dim, dropout)]
+                
+                if level in attention_levels:
+                    layers.append(AttentionBlock(out_ch))
+                
+                self.encoder.append(nn.ModuleList(layers))
+                in_ch = out_ch
+                channels_list.append(in_ch)
+            
+            if level != len(channel_multipliers) - 1:
+                self.encoder.append(nn.ModuleList([Downsample(in_ch)]))
+                channels_list.append(in_ch)
+        
+        # Bottleneck
+        self.bottleneck = nn.ModuleList([
+            ResidualBlock(in_ch, in_ch, time_emb_dim, dropout),
+            AttentionBlock(in_ch),
+            ResidualBlock(in_ch, in_ch, time_emb_dim, dropout)
+        ])
+        
+        # Decoder
+        self.decoder = nn.ModuleList()
+        
+        for level, mult in reversed(list(enumerate(channel_multipliers))):
+            out_ch = base_channels * mult
+            
+            for i in range(num_res_blocks + 1):
+                skip_ch = channels_list.pop()
+                layers = [ResidualBlock(in_ch + skip_ch, out_ch, time_emb_dim, dropout)]
+                
+                if level in attention_levels:
+                    layers.append(AttentionBlock(out_ch))
+                
+                self.decoder.append(nn.ModuleList(layers))
+                in_ch = out_ch
+            
+            if level != 0:
+                self.decoder.append(nn.ModuleList([Upsample(in_ch)]))
+        
+        # Output
+        self.conv_out = nn.Sequential(
+            nn.GroupNorm(8, base_channels),
+            nn.SiLU(),
+            CircularConv2d(base_channels, out_channels, kernel_size=3, padding=1)
+        )
+    
+    def forward(self, img, t, scalar_context):
+        """
+        Args:
+            img: Input image tensor [B, C, H, W] where H=90, W=180
+            t: Diffusion timestep [B] or [B, 1]
+            scalar_context: Scalar conditioning [B] or [B, 1]
+        
+        Returns:
+            Predicted noise [B, C, H, W]
+        """
+        # Ensure proper shapes
+        if img.dim() != 4:
+            raise ValueError(f"Expected img to be 4D [B, C, H, W], got shape {img.shape}")
+        
+        # Ensure t is 1D
+        if t.dim() > 1:
+            t = t.squeeze(-1)
+        
+        # Ensure scalar_context is [B, 1]
+        if scalar_context.dim() == 1:
+            scalar_context = scalar_context.unsqueeze(-1)
+        
+        # Time embedding
+        t_emb = self.time_embedding(t)
+        
+        # Initial convolution
+        x = self.conv_in(img)
+        
+        # Encoder with skip connections
+        skips = [x]
+        
+        for module_list in self.encoder:
+            for module in module_list:
+                if isinstance(module, ResidualBlock):
+                    x = module(x, t_emb, scalar_context)
+                elif isinstance(module, AttentionBlock):
+                    x = module(x)
+                elif isinstance(module, Downsample):
+                    x = module(x)
+            skips.append(x)
+        
+        # Bottleneck
+        for module in self.bottleneck:
+            if isinstance(module, ResidualBlock):
+                x = module(x, t_emb, scalar_context)
+            else:
+                x = module(x)
+        
+        # Decoder with skip connections
+        for module_list in self.decoder:
+            for module in module_list:
+                if isinstance(module, ResidualBlock):
+                    skip = skips.pop()
+                    
+                    # Match spatial dimensions if they don't align (due to odd dimensions)
+                    if x.shape[2:] != skip.shape[2:]:
+                        x = F.interpolate(x, size=skip.shape[2:], mode='nearest')
+                    
+                    x = torch.cat([x, skip], dim=1)
+                    x = module(x, t_emb, scalar_context)
+                elif isinstance(module, AttentionBlock):
+                    x = module(x)
+                elif isinstance(module, Upsample):
+                    x = module(x)
+        
+        # Output
+        x = self.conv_out(x)
+        
+        return x    
+
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, time_emb_dim, dropout=0.1):
+        super().__init__()
+        
+        # FIX: Use adaptive number of groups
+        num_groups = min(8, in_channels)  # Don't exceed channel count
+        if in_channels % num_groups != 0:
+            # Find largest divisor
+            for ng in range(num_groups, 0, -1):
+                if in_channels % ng == 0:
+                    num_groups = ng
+                    break
+        
+        self.conv1 = CircularConv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.conv2 = CircularConv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        
+        self.time_mlp = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(time_emb_dim, out_channels)
+        )
+        
+        self.scalar_mlp = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(1, out_channels)
+        )
+        
+        # Fixed normalization
+        self.norm1 = nn.GroupNorm(min(8, in_channels // 4), in_channels)  
+        self.norm2 = nn.GroupNorm(min(8, out_channels // 4), out_channels)
+        
+        self.dropout = nn.Dropout(dropout)
+        
+        if in_channels != out_channels:
+            self.shortcut = CircularConv2d(in_channels, out_channels, kernel_size=1)
         else:
-            self.residual_proj = nn.Identity()
+            self.shortcut = nn.Identity()
 
-    def forward(self, noisy_x, noise_level, radio_flux=None):
-        out = self.input_layer(noisy_x)
-        out = self.ln1(out)
-        out = self.act1(out)
-        res = self.residual_proj(noisy_x)
-        out = out + res
+    def forward(self, x, t_emb, scalar_context):
+        h = self.norm1(x)
+        h = F.silu(h)
+        h = self.conv1(h)
         
-        # Noise embedding
-        if isinstance(noise_level, float) or len(noise_level.shape) == 0:
-            noise_level = torch.tensor([noise_level], dtype=out.dtype, device=out.device).repeat(out.shape[0], 1)
-        elif len(noise_level.shape) == 1:
-            noise_level = noise_level.unsqueeze(1)
-        noise_emb = self.noise_linear(noise_level)
-        noise_emb = self.noise_act(noise_emb)
-        noise_emb = self.noise_embed(noise_emb)
-        out = out + noise_emb
-
-        # Context embedding
-        if radio_flux is not None:
-            context = self.context_linear(radio_flux)
-            context = self.context_act(context)
-            context = self.context_proj(context)
-            out = out + context
+        # Add time conditioning
+        t_emb = self.time_mlp(t_emb)[:, :, None, None]
+        h = h + t_emb
         
-        out = self.hidden2(out)
-        out = self.ln2(out)
-        out = self.act2(out)
-        out = self.final(out)
+        # Add scalar context conditioning
+        scalar_emb = self.scalar_mlp(scalar_context)[:, :, None, None]
+        h = h + scalar_emb
+        
+        h = self.norm2(h)
+        h = F.silu(h)
+        h = self.dropout(h)
+        h = self.conv2(h)
+        
+        return h + self.shortcut(x)
 
-        return out
+
+
+
+def get_num_groups(channels, target_groups=8):
+    """Get valid number of groups for GroupNorm"""
+    if channels < target_groups:
+        return channels
+    
+    # Find largest divisor <= target_groups
+    for ng in range(target_groups, 0, -1):
+        if channels % ng == 0:
+            return ng
+    return 1
+

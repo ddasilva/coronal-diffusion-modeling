@@ -1,11 +1,14 @@
 import glob
 import os
+import random
 
 from astropy.io import fits
 from torch.utils.data import Dataset
 import torch
 import numpy as np
 import h5py
+from coronal_diffusion.utils import flat_to_GH
+from config import nmax
 
 
 class CoronalFieldDataset(Dataset):
@@ -52,7 +55,14 @@ class CoronalFieldDatasetHDF(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, idx):
-        X = torch.from_numpy(self.X[idx]).float()
+        G, H = flat_to_GH(self.X[idx])
+
+        coeffs = torch.zeros((nmax + 1, nmax + 1), dtype=torch.complex64)
+        coeffs += G + H * 1j
+                
         radio_flux = torch.from_numpy(np.array([self.radio_fluxes[idx]])).float()
 
-        return X, radio_flux
+        if random.random() > 0.5:
+            coeffs *= -1
+        
+        return coeffs, radio_flux
