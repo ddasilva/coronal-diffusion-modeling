@@ -26,9 +26,8 @@ class DiffusionModel(nn.Module):
             out_channels=1,
             base_channels=64,
             channel_multipliers=(1, 2, 4, 8),
-            # channel_multipliers=(1, 2, 4),
             num_res_blocks=2,
-            attention_levels=(2, 3),
+            attention_levels=(2, 3),            
         )
 
     def forward(self, img_with_noise, noise_level, radio_flux, return_noise=False):

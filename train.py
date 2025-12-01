@@ -74,6 +74,46 @@ def unperturb_input(noisey_inputs, t, pred_noise):
     return original_inputs
 
 
+def do_img_plot(config, model, epoch, writer):
+    print("Plotting Magnetic Potential at photosphere (spherical harmonic image)...")
+
+    tasks = [
+        (
+            0.0,
+            "Solar Minimum",
+        ),
+        (
+            1.0,
+            "Solar Maximum",
+        ),
+    ]
+
+    for radio_flux, subtitle in tasks:
+        with torch.no_grad():
+            img, (G, H) = sampler.sample(model=model, radio_flux=radio_flux)
+
+        if not np.isfinite([G, H]).all():
+            continue
+
+        plt.figure()
+        plt.imshow(img)
+        plt.colorbar()
+
+        buff = BytesIO()
+        plt.savefig(buff, format="png", dpi=100)
+        plt.close()
+
+        buff.seek(0)
+        image = np.array(Image.open(buff))
+
+        writer.add_image(
+            "Generated Image / (" + subtitle + ")",
+            image.transpose(2, 0, 1),
+            epoch + 1,
+        )
+
+
+
 def do_br_plot(config, model, epoch, writer):
     print("Plotting Br (magnetogram)...")
 
@@ -90,7 +130,7 @@ def do_br_plot(config, model, epoch, writer):
 
     for radio_flux, subtitle in tasks:
         with torch.no_grad():
-            G, H = sampler.sample(model=model, radio_flux=radio_flux)
+            img, (G, H) = sampler.sample(model=model, radio_flux=radio_flux)
 
         if not np.isfinite([G, H]).all():
             continue
@@ -128,7 +168,7 @@ def do_field_line_plot(config, model, epoch, writer):
 
     for radio_flux, subtitle in tasks:
         with torch.no_grad():
-            G, H = sampler.sample(
+            img, (G, H) = sampler.sample(
                 model=model,
                 radio_flux=radio_flux,
             )
@@ -150,7 +190,7 @@ def do_field_line_plot(config, model, epoch, writer):
             epoch + 1,
         )
 
-
+        
 # def do_test_loop(
 #         model, magnetic_model, test_dataloader, scalers_mean, scalers_std,
 #         epoch, harmonics_weights, magnetic_weights, config, writer
@@ -420,6 +460,9 @@ def main():
         if config.plot_field_lines:
             do_field_line_plot(config, model, epoch, writer)
 
+        if config.plot_img:
+            do_img_plot(config, model, epoch, writer)
+            
         save_checkpoint(model, config, epoch)
 
         scheduler.step()
