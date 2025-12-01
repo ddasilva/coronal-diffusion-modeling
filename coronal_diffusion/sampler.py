@@ -99,9 +99,7 @@ def sample_ddim(model, radio_flux, sf, n, eta, std):
         eps_all.append(eps.squeeze().detach().cpu().numpy())
 
         img = denoise_ddim(img, i, i - step_size, eps, sf, eta, std, model)
-        img_rescaled = torch.sinh(img) * constants.asinh_sf
-
-        img_all.append(eps.squeeze().detach().cpu().numpy())
+        img_all.append(img.squeeze().detach().cpu().numpy())
         # img_all.append(model.sht(img_rescaled).squeeze().detach().cpu().numpy())
 
     history = np.stack(img_all)
