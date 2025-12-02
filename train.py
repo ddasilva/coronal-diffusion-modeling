@@ -53,9 +53,7 @@ def get_scalers(config):
     with open(config.scalers_path) as fh:
         scalers = json.load(fh)
 
-    Gstd, Hstd = flat_to_GH(np.array(scalers["std"]))
-    scalers_std = np.array([Gstd, Hstd])
-    scalers_std = torch.tensor(scalers_std).float().to(constants.device)
+    scalers_std = scalers["std"]
 
     return scalers_std
 
@@ -91,9 +89,6 @@ def do_img_plot(config, model, epoch, writer):
     for radio_flux, subtitle in tasks:
         with torch.no_grad():
             img, (G, H) = sampler.sample(model=model, radio_flux=radio_flux)
-
-        if not np.isfinite([G, H]).all():
-            continue
 
         plt.figure()
         plt.imshow(img)
@@ -252,7 +247,8 @@ def do_train_loop(
     # Training: Loop through batches
     epoch_loss = 0.0
     sf = constants.asinh_sf
-
+    num_batches = 0
+    
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
         # Break if reached max batch
         if batch_idx == config.max_train_batches:
@@ -264,29 +260,15 @@ def do_train_loop(
 
         # Normalize inputs
         img_true = model.isht(orig_coeffs).float()
-        img_true = torch.asinh(img_true / sf)
+        img_true = torch.asinh(img_true / sf) / scalers_std
 
         # Calculate noisey spherical harmonic coefficients, image with noise, and noise image
-        sf = constants.asinh_sf
-
-        true_noise = torch.zeros(
-            orig_coeffs.shape, dtype=torch.complex64, device=constants.device
-        )
-        true_noise = (
-            torch.randn_like(orig_coeffs) * torch.asinh(scalers_std[0] / sf)
-            + torch.randn_like(orig_coeffs) * torch.asinh(scalers_std[1] / sf) * 1j
-        )
-        true_noise = torch.sinh(true_noise) * sf
-
+        true_noise = torch.rand_like(img_true)
+ 
         t = torch.randint(1, constants.timesteps + 1, (orig_coeffs.shape[0],)).to(
             constants.device
         )
-        perturbed_coeffs = perturb_input(orig_coeffs, t, true_noise)
-
-        img_with_noise = model.isht(perturbed_coeffs).float()
-        img_with_noise = torch.asinh(img_with_noise / sf)
-
-        img_noise = img_with_noise - img_true
+        img_with_noise = perturb_input(img_true, t, true_noise)
 
         noise_level = t / constants.timesteps
 
@@ -297,7 +279,7 @@ def do_train_loop(
             img_with_noise, noise_level=noise_level, radio_flux=radio_flux
         )
 
-        loss = F.mse_loss(img_noise, img_pred_noise)
+        loss = F.mse_loss(true_noise, img_pred_noise)
 
         # Backpropagation
         loss.backward()
@@ -325,8 +307,10 @@ def do_train_loop(
             loss=loss.item(),
         )
 
+        num_batches += 1
+        
     # Average loss for the epoch
-    epoch_loss /= min(config.max_train_batches, len(train_dataloader))
+    epoch_loss /= num_batches
 
     # Log epoch loss to TensorBoard
     writer.add_scalar("Epoch / Training Loss", epoch_loss, epoch)
@@ -357,7 +341,8 @@ def do_test_loop(
     # Testing: Loop through batches
     epoch_loss = 0.0
     sf = constants.asinh_sf
-
+    num_batches = 0
+    
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
         # Break if reached max batch
         if batch_idx == config.max_test_batches:
@@ -366,32 +351,20 @@ def do_test_loop(
         # Move inputs to GPU
         orig_coeffs = orig_coeffs.to(constants.device)
         radio_flux = radio_flux.to(constants.device)
-
+        
         # Normalize inputs
         img_true = model.isht(orig_coeffs).float()
-        img_true = torch.asinh(img_true / sf)
+        img_true = torch.asinh(img_true / sf) / scalers_std
 
         # Calculate noisey spherical harmonic coefficients, image with noise, and noise image
         sf = constants.asinh_sf
 
-        true_noise = torch.zeros(
-            orig_coeffs.shape, dtype=torch.complex64, device=constants.device
-        )
-        true_noise = (
-            torch.randn_like(orig_coeffs) * torch.asinh(scalers_std[0] / sf)
-            + torch.randn_like(orig_coeffs) * torch.asinh(scalers_std[1] / sf) * 1j
-        )
-        true_noise = torch.sinh(true_noise) * sf
-
+        true_noise = torch.randn_like(img_true)
+ 
         t = torch.randint(1, constants.timesteps + 1, (orig_coeffs.shape[0],)).to(
             constants.device
         )
-        perturbed_coeffs = perturb_input(orig_coeffs, t, true_noise)
-
-        img_with_noise = model.isht(perturbed_coeffs).float()
-        img_with_noise = torch.asinh(img_with_noise / sf)
-
-        img_noise = img_with_noise - img_true
+        img_with_noise = perturb_input(img_true, t, true_noise)
 
         noise_level = t / constants.timesteps
 
@@ -400,7 +373,7 @@ def do_test_loop(
             img_with_noise, noise_level=noise_level, radio_flux=radio_flux
         )
 
-        loss = F.mse_loss(img_noise, img_pred_noise)
+        loss = F.mse_loss(true_noise, img_pred_noise)
 
         # Add loss to running loss
         epoch_loss += loss.item()
@@ -410,9 +383,9 @@ def do_test_loop(
             loss=loss.item(),
         )
 
-    epoch_loss /= min(
-        config.max_test_batches, len(test_dataloader)
-    )  # Average loss for the epoch
+        num_batches += 1
+
+    epoch_loss /= num_batches
 
     # Log epoch loss to TensorBoard
     writer.add_scalar("Epoch / Testing Loss", epoch_loss, epoch)

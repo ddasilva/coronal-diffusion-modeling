@@ -1,16 +1,16 @@
 # Name of the run, used for model checkpoints and tensorboard logs
-run_name = "experiment35-more-data"
+run_name = "experiment36-img-noise"
 
 # Training settings
 epochs = 100
-batch_size = 20
-#max_train_batches = 1
-#max_test_batches = 1
-max_train_batches = float("inf")
-max_test_batches = float("inf")
+batch_size = 50
+max_train_batches = 1000
+max_test_batches = 100
+#max_train_batches = float("inf")
+#max_test_batches = float("inf")
 
 # Learning rate and scheduler
-learning_rate = 0.00001
+learning_rate = 0.0001
 scheduler_step_size = 100000
 scheduler_gamma = 0.8
 
@@ -45,5 +45,5 @@ scalers_path = f"data/scalers_gong.json"
 # (magnetograms) and field lines (traces) after each epoch. When they
 # are plotted, they are saved in tensorboard logs.
 plot_br = True
-plot_field_lines = True
+plot_field_lines = False
 plot_img = True

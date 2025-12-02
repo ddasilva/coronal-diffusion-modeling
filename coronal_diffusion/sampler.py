@@ -35,10 +35,7 @@ def sample(
     with open(config.scalers_path) as fh:
         scalers = json.load(fh)
 
-    stdG, stdH = flat_to_GH(np.array(scalers["std"]))
-    stdG = torch.tensor(stdG)
-    stdH = torch.tensor(stdH)
-    std = stdG, stdH
+    std = scalers["std"]
 
     if method == "ddim":
         history, history_eps = sample_ddim(model, radio_flux, sf, n, eta, std)
@@ -54,9 +51,9 @@ def sample(
     return_value = []
 
     for img in history:
-        img_scaled = np.sinh(img) * sf
+        img_rescaled = np.sinh(img * std) * constants.asinh_sf
         coeffs = (
-            model.sht(torch.tensor(img_scaled, device=constants.device)).cpu().numpy()
+            model.sht(torch.tensor(img_rescaled, device=constants.device)).cpu().numpy()
         )
 
         # Convert to G and H Matrices
@@ -75,17 +72,8 @@ def sample(
 @torch.no_grad()
 def sample_ddim(model, radio_flux, sf, n, eta, std):
     # sample initial noise
-    shape = (1, config.nmax + 1, config.nmax + 1)
-    coeffs = torch.zeros(shape, dtype=torch.complex64)
-    coeffs += (
-        torch.randn(shape) * torch.asinh(std[0] / asinh_sf)
-        + torch.randn(shape) * torch.asinh(std[1] / asinh_sf) * 1j
-    )
-    coeffs = torch.sinh(coeffs) * asinh_sf
-    coeffs = coeffs.to(constants.device)
-
-    img = model.isht(coeffs)
-    img = torch.asinh(img / asinh_sf)
+    shape = (1, 90, 180)
+    img = torch.randn(shape, device=constants.device)
 
     # Loop
     step_size = constants.timesteps // n
@@ -95,12 +83,11 @@ def sample_ddim(model, radio_flux, sf, n, eta, std):
     for i in range(constants.timesteps, 0, -step_size):
         t = torch.tensor([i / constants.timesteps])[:].to(constants.device)
 
-        eps = model(img, noise_level=t, radio_flux=radio_flux, return_noise=True)
+        eps = model(img, noise_level=t, radio_flux=radio_flux)
         eps_all.append(eps.squeeze().detach().cpu().numpy())
 
         img = denoise_ddim(img, i, i - step_size, eps, sf, eta, std, model)
         img_all.append(img.squeeze().detach().cpu().numpy())
-        # img_all.append(model.sht(img_rescaled).squeeze().detach().cpu().numpy())
 
     history = np.stack(img_all)
     history_eps = np.stack(eps_all)
@@ -136,23 +123,11 @@ def denoise_ddim(x, t, t_prev, pred_noise, sf, eta, std, model):
 
     # Add stochasticity
     if eta > 0:
-        shape = (1, config.nmax + 1, config.nmax + 1)
-        noise = torch.zeros(shape, dtype=torch.complex64)
-        noise += (
-            torch.randn(shape) * torch.asinh(std[0] / asinh_sf)
-            + torch.randn(shape) * torch.asinh(std[1] / asinh_sf) * 1j
-        )
-        noise = torch.sinh(noise) * asinh_sf
-        noise = noise.to(constants.device)
+        shape = (1, 90, 180)
+        img_noise = torch.randn(shape).to(constants.device)
 
         sigma = eta * ((1 - ab_prev) / (1 - ab)).sqrt() * (1 - ab / ab_prev).sqrt()
-        
-        img_noise = model.isht(sigma * noise)
-        img_noise = torch.asinh(img_noise / asinh_sf)
-        dir_xt += img_noise
-
-        #sigma = eta * ((1 - ab_prev) / (1 - ab)).sqrt() * (1 - ab / ab_prev).sqrt()
-        #dir_xt += sigma * img_noise
+        dir_xt += sigma * img_noise
 
     return x0_pred + dir_xt
 
