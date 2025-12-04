@@ -263,7 +263,7 @@ def do_train_loop(
         img_true = torch.asinh(img_true / sf) / scalers_std
 
         # Calculate noisey spherical harmonic coefficients, image with noise, and noise image
-        true_noise = torch.rand_like(img_true)
+        true_noise = torch.randn_like(img_true)
  
         t = torch.randint(1, constants.timesteps + 1, (orig_coeffs.shape[0],)).to(
             constants.device
@@ -357,8 +357,6 @@ def do_test_loop(
         img_true = torch.asinh(img_true / sf) / scalers_std
 
         # Calculate noisey spherical harmonic coefficients, image with noise, and noise image
-        sf = constants.asinh_sf
-
         true_noise = torch.randn_like(img_true)
  
         t = torch.randint(1, constants.timesteps + 1, (orig_coeffs.shape[0],)).to(
