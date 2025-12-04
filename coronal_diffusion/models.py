@@ -24,18 +24,18 @@ class DiffusionModel(nn.Module):
         self.unet = DiffusionUNet(
             in_channels=1,
             out_channels=1,
-            base_channels=32,
-            channel_multipliers=(1, 2, 4),
+            base_channels=64,
+            channel_multipliers=(1, 2, 4, 8),
             num_res_blocks=2,
-            attention_levels=(),
+            attention_levels=(2, 3),            
         )
         # self.unet = DiffusionUNet(
         #     in_channels=1,
         #     out_channels=1,
-        #     base_channels=64,
-        #     channel_multipliers=(1, 2, 4, 8),
+        #     base_channels=32,
+        #     channel_multipliers=(1, 2, 4),
         #     num_res_blocks=2,
-        #     attention_levels=(2, 3),            
+        #     attention_levels=(),
         # )
 
         
