@@ -1,0 +1,78 @@
+import h5py
+import numpy as np
+import torch
+from tqdm import tqdm
+
+from coronal_diffusion.constants import device
+from coronal_diffusion.models import DiffusionModel
+
+import config
+from config import spharm_fit_mat_path, nlat, nlon, nmax, X_SIZE
+
+
+def main():
+    model = DiffusionModel()
+    coeffs = torch.zeros((nmax + 1, nmax + 1), dtype=torch.complex64)
+    radii = np.arange(
+        config.min_radius, config.max_radius + config.res_radius, config.res_radius
+    )
+    nrad = radii.size
+    ncol = X_SIZE - 1
+    nrow = nlat * nlon * nrad
+    A = np.zeros((nrow, ncol), dtype=np.float32)
+    print("Matrix size:", (nrow, ncol))
+
+    pbar = tqdm(total=ncol, desc="Filling matrix")
+    col_counter = 0
+
+    for c in ["g", "h"]:
+        for l in range(nmax + 1):
+            for m in range(nmax + 1):
+                if (l == 0 and m == 0) or ((l == 0 or m == 0) and c == 1):
+                    # skip G[0, 0,] and H[:1, :1]
+                    continue
+
+                if m > l:
+                    # skip zeros
+                    continue
+
+                coeffs[:] = 0
+
+                if c == "g":
+                    coeffs[l, m] = 1
+                elif c == "h":
+                    coeffs[l, m] = 1j
+                else:
+                    raise RuntimeError()
+
+                for i in range(nrad):
+                    img = make_img(model, coeffs, radii[i]).cpu().numpy()
+
+                    start_row = i * nlat * nlon
+                    end_row = start_row + nlat * nlon
+                    A[start_row:end_row, col_counter] = img.flatten()
+
+                col_counter += 1
+                pbar.update(1)
+
+    hdf = h5py.File(spharm_fit_mat_path, "w")
+    hdf["A"] = A
+    hdf.close()
+
+    print(f"Wrote to {spharm_fit_mat_path}")
+
+
+@torch.no_grad()
+def make_img(model, coeffs, r):
+    radial_scaling = torch.zeros(coeffs.shape, dtype=torch.float32)
+
+    for n in range(coeffs.shape[-1]):
+        radial_scaling[n, :] = 1 / r ** (n + 1)
+
+    img = model.isht(radial_scaling * coeffs).float()
+
+    return img
+
+
+if __name__ == "__main__":
+    main()
