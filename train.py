@@ -53,15 +53,17 @@ def get_scalers(config):
     with open(config.scalers_path) as fh:
         scalers = json.load(fh)
 
-    scalers_std = scalers["std"]
+    scalers_dict = {}
+    scalers_dict["std"] = np.array(scalers["std"])
+    scalers_dict["unscaled_abs"] = np.array(scalers["unscaled_abs"])
 
-    return scalers_std
+    return scalers_dict
 
 
 def perturb_input(x, t, noise):
     return (
-        constants.ab_t.sqrt()[t, None, None] * x
-        + (1 - constants.ab_t[t, None, None]).sqrt() * noise
+        constants.ab_t.sqrt()[t, None, None, None] * x
+        + (1 - constants.ab_t[t, None, None, None]).sqrt() * noise
     )
 
 
@@ -90,12 +92,13 @@ def do_img_plot(config, model, epoch, writer):
         with torch.no_grad():
             img, (G, H) = sampler.sample(model=model, radio_flux=radio_flux)
 
-        plt.figure()
-        plt.imshow(img)
-        plt.colorbar()
+        fig, axes = plt.subplots(4, 4, sharex=True, sharey=True)
+
+        for i in range(img.shape[0]):
+            axes.flatten()[i].imshow(img[i])
 
         buff = BytesIO()
-        plt.savefig(buff, format="png", dpi=100)
+        plt.savefig(buff, format="png", dpi=300)
         plt.close()
 
         buff.seek(0)
@@ -106,7 +109,6 @@ def do_img_plot(config, model, epoch, writer):
             image.transpose(2, 0, 1),
             epoch + 1,
         )
-
 
 
 def do_br_plot(config, model, epoch, writer):
@@ -185,9 +187,9 @@ def do_field_line_plot(config, model, epoch, writer):
             epoch + 1,
         )
 
-        
+
 # def do_test_loop(
-#         model, magnetic_model, test_dataloader, scalers_mean, scalers_std,
+#         model, magnetic_model, test_dataloader, scalers_mean, scalers['std'],
 #         epoch, harmonics_weights, magnetic_weights, config, writer
 # ):
 #     model.eval()
@@ -204,7 +206,7 @@ def do_field_line_plot(config, model, epoch, writer):
 #             radio_flux = radio_flux.to(constants.device)
 
 #             # Normalize inputs
-#             inputs = (orig_coeffs - scalers_mean) / scalers_std
+#             inputs = (orig_coeffs - scalers_mean) / scalers['std']
 
 #             true_noise = config.noise_inflation * torch.randn_like(inputs)
 #             t = torch.randint(1, constants.timesteps + 1, (inputs.shape[0],)).to(constants.device)
@@ -217,7 +219,7 @@ def do_field_line_plot(config, model, epoch, writer):
 #             if config.magnetic_lambda == 0:
 #                 magnetic_loss = torch.tensor(0.0, device=constants.device)
 #             else:
-#                 pred_coeffs = unperturb_input(noisey_inputs, t, pred_noise) * scalers_std + scalers_mean
+#                 pred_coeffs = unperturb_input(noisey_inputs, t, pred_noise) * scalers['std'] + scalers_mean
 #                 pred_magnetic = magnetic_model(pred_coeffs, potential=True)
 #                 target_magnetic = magnetic_model(orig_coeffs, potential=True)
 #                 magnetic_loss = magnetic_criterion(pred_magnetic, target_magnetic, magnetic_weights)  # Add br loss
@@ -231,11 +233,11 @@ def do_field_line_plot(config, model, epoch, writer):
 
 
 def do_train_loop(
-    model, train_dataloader, scalers_std, epoch, config, writer, optimizer
+    model, train_dataloader, scalers_dict, epoch, config, writer, optimizer
 ):
     model.train()
 
-    print("Starting epoch", epoch + 1)
+    print("Starting training of epoch", epoch + 1)
 
     # Initialize progress bar
     progress_bar = tqdm(
@@ -246,9 +248,11 @@ def do_train_loop(
 
     # Training: Loop through batches
     epoch_loss = 0.0
-    sf = constants.asinh_sf
+    radii = np.arange(
+        config.min_radius, config.max_radius + config.res_radius, config.res_radius
+    )
     num_batches = 0
-    
+
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
         # Break if reached max batch
         if batch_idx == config.max_train_batches:
@@ -259,12 +263,11 @@ def do_train_loop(
         radio_flux = radio_flux.to(constants.device)
 
         # Normalize inputs
-        img_true = model.isht(orig_coeffs).float()
-        img_true = torch.asinh(img_true / sf) / scalers_std
+        img_true = get_potential_images(model, orig_coeffs, radii, scalers_dict)
 
         # Calculate noisey spherical harmonic coefficients, image with noise, and noise image
         true_noise = torch.randn_like(img_true)
- 
+
         t = torch.randint(1, constants.timesteps + 1, (orig_coeffs.shape[0],)).to(
             constants.device
         )
@@ -308,7 +311,7 @@ def do_train_loop(
         )
 
         num_batches += 1
-        
+
     # Average loss for the epoch
     epoch_loss /= num_batches
 
@@ -322,14 +325,14 @@ def do_train_loop(
 def do_test_loop(
     model,
     test_dataloader,
-    scalers_std,
+    scalers_dict,
     epoch,
     config,
     writer,
 ):
     model.eval()
 
-    print("Starting epoch", epoch + 1)
+    print("Starting testing epoch", epoch + 1)
 
     # Initialize progress bar
     progress_bar = tqdm(
@@ -340,25 +343,26 @@ def do_test_loop(
 
     # Testing: Loop through batches
     epoch_loss = 0.0
-    sf = constants.asinh_sf
+    radii = np.arange(
+        config.min_radius, config.max_radius + config.res_radius, config.res_radius
+    )
     num_batches = 0
-    
+
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
         # Break if reached max batch
-        if batch_idx == config.max_test_batches:
+        if batch_idx == config.max_train_batches:
             break
 
         # Move inputs to GPU
         orig_coeffs = orig_coeffs.to(constants.device)
         radio_flux = radio_flux.to(constants.device)
-        
+
         # Normalize inputs
-        img_true = model.isht(orig_coeffs).float()
-        img_true = torch.asinh(img_true / sf) / scalers_std
+        img_true = get_potential_images(model, orig_coeffs, radii, scalers_dict)
 
         # Calculate noisey spherical harmonic coefficients, image with noise, and noise image
         true_noise = torch.randn_like(img_true)
- 
+
         t = torch.randint(1, constants.timesteps + 1, (orig_coeffs.shape[0],)).to(
             constants.device
         )
@@ -371,6 +375,7 @@ def do_test_loop(
             img_with_noise, noise_level=noise_level, radio_flux=radio_flux
         )
 
+        # Backpropagation
         loss = F.mse_loss(true_noise, img_pred_noise)
 
         # Add loss to running loss
@@ -392,10 +397,35 @@ def do_test_loop(
     print(f"Epoch [{epoch+1}/{config.epochs}], Testing Loss: {epoch_loss:.4f}")
 
 
+def get_potential_images(model, coeffs, radii, scalers_dict):
+    B, nmax, _ = coeffs.shape
+    nrad = radii.size
+
+    images = torch.zeros((B, nrad, config.nlat, config.nlon))
+    images = images.to(constants.device)
+
+    for i in range(nrad):
+        radial_scaling = torch.zeros(
+            coeffs.shape, dtype=torch.float32, device=constants.device
+        )
+
+        for n in range(coeffs.shape[-1]):
+            radial_scaling[:, n, :] = 1 / radii[i] ** (n + 1)
+
+        img_chan = model.isht(radial_scaling * coeffs).float()
+        img_chan = (
+            torch.asinh(img_chan / scalers_dict["unscaled_abs"][i])
+            / scalers_dict["std"][i]
+        )
+        images[:, i, :, :] = img_chan
+
+    return images
+
+
 def main():
     # Load dataloaders and scalers
     train_dataloader, test_dataloader = get_dataloaders(config)
-    scalers_std = get_scalers(config)
+    scalers_dict = get_scalers(config)
 
     # Setup base denoising diffusion model
     model = DiffusionModel().to(constants.device)
@@ -415,26 +445,26 @@ def main():
         do_train_loop(
             model,
             train_dataloader,
-            scalers_std,
+            scalers_dict,
             epoch,
             config,
             writer,
             optimizer,
         )
 
-        do_test_loop(model, test_dataloader, scalers_std, epoch, config, writer)
+        do_test_loop(model, test_dataloader, scalers_dict, epoch, config, writer)
 
-        # Do plotting every plot_freq iterations
+        save_checkpoint(model, config, epoch)
+
+        # Do plotting every epoch
         if config.plot_br:
             do_br_plot(config, model, epoch, writer)
-
+            
         if config.plot_field_lines:
             do_field_line_plot(config, model, epoch, writer)
 
         if config.plot_img:
             do_img_plot(config, model, epoch, writer)
-            
-        save_checkpoint(model, config, epoch)
 
         scheduler.step()
 

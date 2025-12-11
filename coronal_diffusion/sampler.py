@@ -51,15 +51,18 @@ def sample(
     return_value = []
 
     for img in history:
-        img_rescaled = np.sinh(img * std) * constants.asinh_sf
-        coeffs = (
-            model.sht(torch.tensor(img_rescaled, device=constants.device)).cpu().numpy()
-        )
+        #img_rescaled = np.sinh(img * std) * constants.asinh_sf
+        #coeffs = (
+        #    model.sht(torch.tensor(img_rescaled, device=constants.device)).cpu().numpy()
+        #)
 
         # Convert to G and H Matrices
-        G = coeffs.real
-        H = coeffs.imag
+        #G = coeffs.real
+        #H = coeffs.imag
 
+        G = np.zeros((4,4))
+        H = np.zeros((4,4))
+        
         return_value.append((img, (G, H)))
 
     if return_history:
@@ -72,7 +75,11 @@ def sample(
 @torch.no_grad()
 def sample_ddim(model, radio_flux, sf, n, eta, std):
     # sample initial noise
-    shape = (1, 90, 180)
+    radii = np.arange(
+        config.min_radius, config.max_radius + config.res_radius, config.res_radius
+    )
+    nrad = radii.size
+    shape = (1, nrad, config.nlat, config.nlon)
     img = torch.randn(shape, device=constants.device)
 
     # Loop
@@ -123,7 +130,7 @@ def denoise_ddim(x, t, t_prev, pred_noise, sf, eta, std, model):
 
     # Add stochasticity
     if eta > 0:
-        shape = (1, 90, 180)
+        shape = x.shape
         img_noise = torch.randn(shape).to(constants.device)
 
         sigma = eta * ((1 - ab_prev) / (1 - ab)).sqrt() * (1 - ab / ab_prev).sqrt()

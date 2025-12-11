@@ -7,6 +7,18 @@ import config
 from config import nmax
 
 
+def make_img(coeffs, r):
+
+    radial_scaling = torch.zeros(coeffs.shape, dtype=torch.float32, device=device)
+    
+    for n in range(coeffs.shape[-1]):
+        radial_scaling[n, :] = 1 / r**(n + 1)
+
+    img = model.isht(radial_scaling * coeffs).float()
+    #img = torch.asinh(img) / scalers_std
+
+    return img
+
 
 def GH_to_flat(G, H):
     return np.concatenate(

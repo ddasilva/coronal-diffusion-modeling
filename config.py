@@ -1,13 +1,13 @@
 # Name of the run, used for model checkpoints and tensorboard logs
-run_name = "experiment36-img-noise"
+run_name = "experiment43-new-unet-deeper"
 
 # Training settings
 epochs = 100
 batch_size = 20
-#max_train_batches = 1000
-#max_test_batches = 100
 max_train_batches = float("inf")
 max_test_batches = float("inf")
+#max_train_batches = 1
+#max_test_batches = 1
 
 # Learning rate and scheduler
 learning_rate = 0.0001
@@ -38,12 +38,23 @@ test_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolat
 
 delta_rot = 360  # degrees
 
-# Scalers and seed helpers
-scalers_path = f"data/scalers_noazrot.json"
+# Scalers and spherical harmonic fix matrix
+scalers_path = "data/scalers_noazrot.json"
+spharm_fit_mat_path = 'data/spharm_fit_mat.h5'
 
 # Checkpoint plotting parameters for training. Flags whether to plot Br
 # (magnetograms) and field lines (traces) after each epoch. When they
 # are plotted, they are saved in tensorboard logs.
-plot_br = True
-plot_field_lines = True
+plot_br = False
+plot_field_lines = False
 plot_img = True
+plot_freq = 1000
+
+# 3D settings
+min_radius = 1.0
+max_radius = 2.5
+res_radius = 0.1
+
+nlat = 90
+nlon = 180
+

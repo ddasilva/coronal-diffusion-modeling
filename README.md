@@ -21,6 +21,5 @@ The full training process is:
 ```
 $ python make_augmented_dataset.py
 $ python write_scalers.py
-$ python write_seed_helpers.py
 $ python train.py
 ```
