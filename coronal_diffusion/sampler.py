@@ -47,6 +47,7 @@ def sample(
     radio_flux=0,
     n=20,
     eta=0.1,
+    method='ddpm',
     return_history=False,
 ):
     # Check command line arguments
@@ -66,8 +67,11 @@ def sample(
     )
 
     # Call sample_ddim
-    imgs, history_pred_noise = sample_ddim(model, radio_flux, n, eta)
-
+    if method == 'ddim':
+        imgs, history_pred_noise = sample_ddim(model, radio_flux, n, eta)
+    elif method == 'ddpm':
+        imgs = sample_ddpm(model, radio_flux)
+        
     # Perform sphericla harmonic fit of last image
     G, H = spherical_harm_fit_smaller(imgs[-1], sampling_data)
 
@@ -78,7 +82,7 @@ def sample(
         return imgs[-1], (G, H)
 
 
-def spherical_harm_fit_smaller(img, sampling_data, fitrad=16):
+def spherical_harm_fit_smaller(img, sampling_data, fitrad=config.radii.size):
     # Rescale image -------------------------------------
     img_rescaled = np.zeros(img.shape)
     nrad, nlat, nlon = img.shape
@@ -178,61 +182,62 @@ def denoise_ddim(x, t, t_prev, pred_noise, eta):
     return x0_pred + dir_xt
 
 
-# @torch.no_grad()
-# def denoise_ddpm(x, t_idx, eps, sf):
-#     """
-#     DDPM denoising step based on Ho et al. (2020).
+@torch.no_grad()
+def denoise_ddpm(x, t_idx, eps):
+    """
+    DDPM denoising step based on Ho et al. (2020).
 
-#     Args:
-#         x (torch.Tensor): Current noisy sample at timestep t.
-#         t_idx (int): Current timestep index.
-#         eps (torch.Tensor): Model's predicted noise (epsilon).
-#         sf (float): Noise scaling factor (1.0 for DDPM).
+    Args:
+        x (torch.Tensor): Current noisy sample at timestep t.
+        t_idx (int): Current timestep index.
+        eps (torch.Tensor): Model's predicted noise (epsilon).
 
-#     Returns:
-#         torch.Tensor: Sample at timestep t-1.
-#     """
-#     b = constants.b_t[t_idx]
-#     a = constants.a_t[t_idx]
-#     ab = constants.ab_t[t_idx]
-#     ab_prev = constants.ab_t[t_idx - 1]
+    Returns:
+        torch.Tensor: Sample at timestep t-1.
+    """
+    b = constants.b_t[t_idx]
+    a = constants.a_t[t_idx]
+    ab = constants.ab_t[t_idx]
+    ab_prev = constants.ab_t[t_idx - 1]
 
-#     # Estimate the clean sample x0
-#     x0_pred = (x - (1 - ab).sqrt() * eps) / ab.sqrt()
+    # Estimate the clean sample x0
+    x0_pred = (x - (1 - ab).sqrt() * eps) / ab.sqrt()
 
-#     # Compute posterior mean and variance
-#     mean = (ab_prev.sqrt() * b / (1 - ab)) * x0_pred + (
-#         (1 - ab_prev) * a.sqrt() / (1 - ab)
-#     ) * x
+    # Compute posterior mean and variance
+    mean = (ab_prev.sqrt() * b / (1 - ab)) * x0_pred + (
+        (1 - ab_prev) * a.sqrt() / (1 - ab)
+    ) * x
 
-#     # Sample from posterior distribution
-#     if t_idx > 1:
-#         noise = torch.randn_like(x)
-#         var = sf * ((1 - ab_prev) / (1 - ab)) * b
-#         return mean + var.sqrt() * noise
-#     else:
-#         return mean  # final step, no noise
+    # Sample from posterior distribution
+    if t_idx > 1:
+        noise = torch.randn_like(x)
+        var = ((1 - ab_prev) / (1 - ab)) * b
+        return mean + var.sqrt() * noise
+    else:
+        return mean  # final step, no noise
 
 
-# @torch.no_grad()
-# def sample_ddpm(model, radio_flux, sf, n, seed_mean, seed_std):
-#     """
-#     DDPM ancestral sampling (standard diffusion sampling, not deterministic like DDIM).
-#     Args:
-#         model: The trained diffusion model.
-#         radio_flux: Conditioning variable.
-#         sf: Scaling factor for noise.
-#         n: Number of steps to sample.
-#     Returns:
-#         history: np.ndarray of generated samples at each step.
-#     """
-#     x = torch.randn(1, config.X_SIZE).to(constants.device) * seed_std + seed_mean
-#     history = [x.squeeze().cpu().numpy()]
+@torch.no_grad()
+def sample_ddpm(model, radio_flux):
+    """
+    DDPM ancestral sampling (standard diffusion sampling, not deterministic like DDIM).
+    Args:
+        model: The trained diffusion model.
+        radio_flux: Conditioning variable.
+        n: Number of steps to sample.
+    Returns:
+        history: np.ndarray of generated samples at each step.
+    """
+    nrad = config.radii.size
+    shape = (1, nrad, config.nlat, config.nlon)
+    x = torch.randn(shape, device=constants.device)
+    history = [x.squeeze().cpu().numpy()]
 
-#     for t_idx in reversed(range(1, constants.timesteps + 1)):
-#         t = torch.tensor([t_idx / constants.timesteps]).to(constants.device)
-#         eps = model(x, noise_level=t, radio_flux=radio_flux)  # predict noise e_(x_t,t)
-#         x = denoise_ddpm(x, t_idx, eps, sf)
-#         history.append(x.squeeze().cpu().numpy())
-
-#     return np.stack(history, axis=0)
+    for t_idx in reversed(range(1, constants.timesteps + 1)):
+        print(f"\rDenoising Step {t_idx}              ", end="")
+        t = torch.tensor([t_idx / constants.timesteps]).to(constants.device)
+        eps = model(x, noise_level=t, radio_flux=radio_flux)  # predict noise e_(x_t,t)
+        x = denoise_ddpm(x, t_idx, eps)
+        history.append(x.squeeze().cpu().numpy())
+    print()
+    return np.stack(history, axis=0)
