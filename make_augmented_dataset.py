@@ -113,5 +113,5 @@ def process_file(file, df_radio):
 
 
 if __name__ == "__main__":
-    #main(config.train_wsa_dir, config.train_dataset_path)
+    # main(config.train_wsa_dir, config.train_dataset_path)
     main(config.test_wsa_dir, config.test_dataset_path)

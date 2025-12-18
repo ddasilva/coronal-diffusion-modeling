@@ -10,23 +10,23 @@ from config import nmax
 def make_img(coeffs, r):
 
     radial_scaling = torch.zeros(coeffs.shape, dtype=torch.float32, device=device)
-    
+
     for n in range(coeffs.shape[-1]):
-        radial_scaling[n, :] = 1 / r**(n + 1)
+        radial_scaling[n, :] = 1 / r ** (n + 1)
 
     img = model.isht(radial_scaling * coeffs).float()
-    #img = torch.asinh(img) / scalers_std
+    # img = torch.asinh(img) / scalers_std
 
     return img
 
 
 def GH_to_flat(G, H):
     return np.concatenate(
-        [G[np.tril_indices(config.nmax + 1)], H[1:, 1:][np.tril_indices(config.nmax)]]
+        [G[np.tril_indices(G.shape[0])], H[1:, 1:][np.tril_indices(G.shape[0] - 1)]]
     ).flatten()
 
 
-def flat_to_GH(flat):
+def flat_to_GH(flat, nmax=config.nmax):
     G = np.zeros((nmax + 1, nmax + 1))
     H = np.zeros((nmax + 1, nmax + 1))
     Htemp = np.zeros((nmax, nmax))

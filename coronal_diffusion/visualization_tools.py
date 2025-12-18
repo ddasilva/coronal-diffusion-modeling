@@ -1,21 +1,128 @@
+import json
 import numpy as np
 import pyshtools
 import plotly.graph_objects as go
 from ai import cs
 from matplotlib import pyplot as plt
 
-OUTER_BOUNDARY = 2.5
+import config
+
+INNER_BOUNDARY = 1.00
+OUTER_BOUNDARY = 2.50
 
 
-class SHVisualizer:
-
-    def __init__(self, G, H, normalization="ortho"):
+class SHInterpolator:
+    def __init__(self, G, H, normalization):
         coeffs_array = np.array([G, H])
         self.coeffs = pyshtools.SHMagCoeffs.from_array(
             coeffs_array,
             normalization=normalization,
             r0=1,
         )
+
+    def interpolate(self, r, lat, lon):
+        result = np.array(
+            self.coeffs.expand(r=[r], lat=[lat], lon=[lon], degrees=False)
+        ).flatten()
+        Br, Btheta, Bphi = result
+
+        return Br, Btheta, Bphi
+
+
+class ImgInterpolator:
+    def __init__(self, img):
+        # Load scalers parameters
+        with open(config.scalers_path) as fh:
+            scalers_dict = json.load(fh)
+
+        std = np.array(scalers_dict["std"])
+        unscaled_abs = np.array(scalers_dict["unscaled_abs"])
+
+        # Rescale image to normal units
+        self.img_rescaled = np.zeros(img.shape)
+
+        nrad, nlat, nlon = img.shape
+
+        for i in range(nrad):
+            self.img_rescaled[i] = np.sinh(img[i] * std[i]) * unscaled_abs[i]
+
+        # Set grid
+        self.radii = config.radii
+        self.lat = np.linspace(-np.pi / 2, np.pi / 2, nlat)  # Latitude in radians
+        self.lon = np.linspace(0, 2 * np.pi, nlon)  # Longitude in radians
+
+        # Create interpolator for the potential
+        from scipy.interpolate import RegularGridInterpolator
+
+        self.potential_interp = RegularGridInterpolator(
+            (self.radii, self.lat, self.lon),
+            self.img_rescaled,
+            method="cubic",
+            bounds_error=True,
+            fill_value=None,
+        )
+
+    def interpolate(self, r, lat, lon):
+        """
+        Compute magnetic field components from potential.
+
+        Parameters:
+        -----------
+        r : float
+            Radial coordinate
+        lat : float
+            Latitude in radians
+        lon : float
+            Longitude in radians
+
+        Returns:
+        --------
+        Br, Btheta, Bphi : float
+            Magnetic field components in spherical coordinates
+        """
+        # Small step for finite differences
+        h = 0.001
+
+        # Get potential at neighboring points
+        r, lat, lon = cs.cart2sp(x, y, z)
+
+        r_xp, lat_xp, lon_xp = cs.cart2sp(x + h, y, z)
+        r_xm, lat_xm, lon_xm = cs.cart2sp(x - h, y, z)
+
+        r_yp, lat_yp, lon_yp = cs.cart2sp(x, y + h, z)
+        r_ym, lat_ym, lon_ym = cs.cart2sp(x, y - h, z)
+
+        r_zp, lat_zp, lon_zp = cs.cart2sp(x, y, z + h)
+        r_zm, lat_zm, lon_zm = cs.cart2sp(x, y, z - h)
+
+        # Evaluate potential
+        A_xp = self.potential_interp([r_xp, lat_xp, lon_xp])[0]
+        A_xm = self.potential_interp([r_xm, lat_xm, lon_xm])[0]
+
+        A_yp = self.potential_interp([r_yp, lat_yp, lon_yp])[0]
+        A_ym = self.potential_interp([r_ym, lat_ym, lon_ym])[0]
+
+        A_zp = self.potential_interp([r_zp, lat_zp, lon_zp])[0]
+        A_zm = self.potential_interp([r_zm, lat_zm, lon_zm])[0]
+
+        # Compute field components
+        Bx = -(A_xp - A_xm) / (2 * h)
+        By = -(A_yp - A_ym) / (2 * h)
+        Bz = -(A_zp - A_zm) / (2 * h)
+
+        return Br, Btheta, Bphi
+
+
+class Visualizer:
+
+    def __init__(self, G=None, H=None, img=None, normalization="ortho"):
+
+        if G is not None and H is not None:
+            self.itp = SHInterpolator(G, H, normalization)
+        elif img is not None:
+            self.itp = ImgInterpolator(img)
+        else:
+            raise ValueError("Need to specify G and H, or img")
 
     def trace_field_line(
         self, start_point, step_size, max_steps=100_000_000, closed_only=False
@@ -27,10 +134,10 @@ class SHVisualizer:
             r, lat, lon = cs.cart2sp(*field_line[-1])
 
             # Expand spherical harmonics to get field components
-            result = np.array(
-                self.coeffs.expand(r=[r], lat=[lat], lon=[lon], degrees=False)
-            ).flatten()
-            Br, Btheta, Bphi = result
+            try:
+                Br, Btheta, Bphi = self.itp.interpolate(r, lat, lon)
+            except ValueError:
+                break
 
             # Convert spherical field components to Cartesian coordinates
             Bx, By, Bz = spherical_to_cartesian_vector(Br, Btheta, Bphi, lat, lon)
@@ -51,7 +158,7 @@ class SHVisualizer:
                 else:
                     color = "blue" if Br > 0 else "red"
                     break
-            if r < 1:
+            if r < INNER_BOUNDARY:
                 break
 
             field_line.append((x, y, z))
@@ -83,7 +190,7 @@ class SHVisualizer:
 
         return field_lines, colors
 
-    def get_coronal_holes(self, grid_density, r=1.1):
+    def get_coronal_holes(self, grid_density, r=2.49):
         step_size = 0.01  # Step size
         max_steps = 1000  # Maximum number of steps to trace
 
@@ -203,11 +310,14 @@ class SHVisualizer:
 
         lat, lon = np.meshgrid(lat_axis, lon_axis, indexing="ij")
 
-        result = np.array(
-            self.coeffs.expand(
-                r=[r] * lat.size, lat=lat.flatten(), lon=lon.flatten(), degrees=True
+        lat_rad = np.deg2rad(lat)
+        lon_rad = np.deg2rad(lon)
+        result = np.zeros((lat.size, 3))
+
+        for i in range(lat.size):
+            result[i, :] = self.itp.interpolate(
+                r, lat_rad.flatten()[i], lon_rad.flatten()[i]
             )
-        ).squeeze()
 
         return result, lat, lon
 

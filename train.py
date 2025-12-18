@@ -1,3 +1,4 @@
+import gc
 import json
 from io import BytesIO
 
@@ -10,14 +11,12 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from PIL import Image
 import numpy as np
-import torch.nn as nn
 
 from coronal_diffusion.dataset import CoronalFieldDatasetHDF
 from coronal_diffusion.models import DiffusionModel
 from coronal_diffusion import visualization_tools as vt
 from coronal_diffusion import sampler
 from coronal_diffusion import constants
-from coronal_diffusion.utils import flat_to_GH
 
 import config
 
@@ -74,25 +73,13 @@ def unperturb_input(noisey_inputs, t, pred_noise):
     return original_inputs
 
 
-def do_img_plot(config, model, epoch, writer):
+def do_img_plot(config, samples, epoch, writer):
     print("Plotting Magnetic Potential at photosphere (spherical harmonic image)...")
 
-    tasks = [
-        (
-            0.0,
-            "Solar Minimum",
-        ),
-        (
-            1.0,
-            "Solar Maximum",
-        ),
-    ]
-
-    for radio_flux, subtitle in tasks:
-        with torch.no_grad():
-            img, (G, H) = sampler.sample(model=model, radio_flux=radio_flux)
-
-        fig, axes = plt.subplots(4, 4, sharex=True, sharey=True)
+    for subtitle, (img, (G, H)) in samples.items():
+        nrad = len(config.radii)
+        ngrid = int(np.ceil(np.sqrt(nrad)))
+        fig, axes = plt.subplots(ngrid, ngrid, sharex=True, sharey=True)
 
         for i in range(img.shape[0]):
             axes.flatten()[i].imshow(img[i])
@@ -111,8 +98,8 @@ def do_img_plot(config, model, epoch, writer):
         )
 
 
-def do_br_plot(config, model, epoch, writer):
-    print("Plotting Br (magnetogram)...")
+def get_samples(config, model):
+    print("Sampling....")
 
     tasks = [
         (
@@ -125,10 +112,23 @@ def do_br_plot(config, model, epoch, writer):
         ),
     ]
 
-    for radio_flux, subtitle in tasks:
-        with torch.no_grad():
-            img, (G, H) = sampler.sample(model=model, radio_flux=radio_flux)
+    sampling_data = sampler.load_sampling_data()
 
+    return_value = {}
+
+    for radio_flux, subtitle in tasks:
+        print(f"Sampling {subtitle}")
+        return_value[subtitle] = sampler.sample(
+            sampling_data, model=model, radio_flux=radio_flux
+        )
+
+    return return_value
+
+
+def do_br_plot(config, samples, epoch, writer):
+    print("Plotting Br (magnetogram)...")
+
+    for subtitle, (img, (G, H)) in samples.items():
         if not np.isfinite([G, H]).all():
             continue
 
@@ -149,27 +149,10 @@ def do_br_plot(config, model, epoch, writer):
         )
 
 
-def do_field_line_plot(config, model, epoch, writer):
+def do_field_line_plot(config, samples, epoch, writer):
     print("Plotting field lines...")
 
-    tasks = [
-        (
-            0.0,
-            "Solar Minimum",
-        ),
-        (
-            1.0,
-            "Solar Maximum",
-        ),
-    ]
-
-    for radio_flux, subtitle in tasks:
-        with torch.no_grad():
-            img, (G, H) = sampler.sample(
-                model=model,
-                radio_flux=radio_flux,
-            )
-
+    for subtitle, (img, (G, H)) in samples.items():
         if not np.isfinite([G, H]).all():
             continue
 
@@ -188,50 +171,6 @@ def do_field_line_plot(config, model, epoch, writer):
         )
 
 
-# def do_test_loop(
-#         model, magnetic_model, test_dataloader, scalers_mean, scalers['std'],
-#         epoch, harmonics_weights, magnetic_weights, config, writer
-# ):
-#     model.eval()
-#     test_loss = 0
-
-#     with torch.no_grad():
-#         for batch_idx, (orig_coeffs, radio_flux) in enumerate(test_dataloader):
-#             # Break if reached max batch
-#             if batch_idx == config.max_test_batches:
-#                 break
-
-#             # Move inputs to GPU
-#             orig_coeffs = orig_coeffs.to(constants.device)
-#             radio_flux = radio_flux.to(constants.device)
-
-#             # Normalize inputs
-#             inputs = (orig_coeffs - scalers_mean) / scalers['std']
-
-#             true_noise = config.noise_inflation * torch.randn_like(inputs)
-#             t = torch.randint(1, constants.timesteps + 1, (inputs.shape[0],)).to(constants.device)
-#             noisey_inputs = perturb_input(inputs, t, true_noise)
-
-#             pred_noise = model(noisey_inputs, noise_level=t/constants.timesteps, radio_flux=radio_flux)
-
-#             harmonics_loss = harmonics_criterian(pred_noise, true_noise)
-
-#             if config.magnetic_lambda == 0:
-#                 magnetic_loss = torch.tensor(0.0, device=constants.device)
-#             else:
-#                 pred_coeffs = unperturb_input(noisey_inputs, t, pred_noise) * scalers['std'] + scalers_mean
-#                 pred_magnetic = magnetic_model(pred_coeffs, potential=True)
-#                 target_magnetic = magnetic_model(orig_coeffs, potential=True)
-#                 magnetic_loss = magnetic_criterion(pred_magnetic, target_magnetic, magnetic_weights)  # Add br loss
-
-#             test_loss += config.harmonics_lambda * harmonics_loss + config.magnetic_lambda * magnetic_loss
-
-#     test_loss /= len(test_dataloader)
-
-#     writer.add_scalar("Epoch / Validation Loss", test_loss, epoch)
-#     print(f"Epoch [{epoch+1}/{config.epochs}], Test Loss: {test_loss:.4f}")
-
-
 def do_train_loop(
     model, train_dataloader, scalers_dict, epoch, config, writer, optimizer
 ):
@@ -248,9 +187,6 @@ def do_train_loop(
 
     # Training: Loop through batches
     epoch_loss = 0.0
-    radii = np.arange(
-        config.min_radius, config.max_radius + config.res_radius, config.res_radius
-    )
     num_batches = 0
 
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
@@ -263,7 +199,7 @@ def do_train_loop(
         radio_flux = radio_flux.to(constants.device)
 
         # Normalize inputs
-        img_true = get_potential_images(model, orig_coeffs, radii, scalers_dict)
+        img_true = get_potential_images(model, orig_coeffs, config.radii, scalers_dict)
 
         # Calculate noisey spherical harmonic coefficients, image with noise, and noise image
         true_noise = torch.randn_like(img_true)
@@ -343,14 +279,11 @@ def do_test_loop(
 
     # Testing: Loop through batches
     epoch_loss = 0.0
-    radii = np.arange(
-        config.min_radius, config.max_radius + config.res_radius, config.res_radius
-    )
     num_batches = 0
 
     for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
         # Break if reached max batch
-        if batch_idx == config.max_train_batches:
+        if batch_idx == config.max_test_batches:
             break
 
         # Move inputs to GPU
@@ -358,7 +291,7 @@ def do_test_loop(
         radio_flux = radio_flux.to(constants.device)
 
         # Normalize inputs
-        img_true = get_potential_images(model, orig_coeffs, radii, scalers_dict)
+        img_true = get_potential_images(model, orig_coeffs, config.radii, scalers_dict)
 
         # Calculate noisey spherical harmonic coefficients, image with noise, and noise image
         true_noise = torch.randn_like(img_true)
@@ -430,6 +363,11 @@ def main():
     # Setup base denoising diffusion model
     model = DiffusionModel().to(constants.device)
 
+    if config.restart_file:
+        print(f"Loading {config.restart_file} as restart file")
+        state_dict = torch.load(config.restart_file, map_location=constants.device)
+        model.load_state_dict(state_dict)
+
     # Setup the optimizer and learning rate scheduler
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
 
@@ -441,7 +379,7 @@ def main():
     writer = SummaryWriter(log_dir=f"runs/{config.run_name}")
 
     # Epoch loop
-    for epoch in range(config.epochs):
+    for epoch in range(config.start_epoch, config.epochs):
         do_train_loop(
             model,
             train_dataloader,
@@ -457,18 +395,24 @@ def main():
         save_checkpoint(model, config, epoch)
 
         # Do plotting every epoch
-        if config.plot_br:
-            do_br_plot(config, model, epoch, writer)
-            
-        if config.plot_field_lines:
-            do_field_line_plot(config, model, epoch, writer)
+        if config.plot_br or config.plot_field_lines or config.plot_img:
+            samples = get_samples(config, model)
 
-        if config.plot_img:
-            do_img_plot(config, model, epoch, writer)
+            if config.plot_br:
+                do_br_plot(config, samples, epoch, writer)
+
+            if config.plot_field_lines:
+                do_field_line_plot(config, samples, epoch, writer)
+
+            if config.plot_img:
+                do_img_plot(config, samples, epoch, writer)
 
         scheduler.step()
 
         writer.flush()
+
+        gc.collect()
+        torch.cuda.empty_cache()
 
     # Close the TensorBoard writer
     writer.close()

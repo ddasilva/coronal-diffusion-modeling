@@ -2,8 +2,6 @@ import torch
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-asinh_sf = 1000
-
 timesteps = 1000
 beta1 = 1e-4
 beta2 = 0.02
