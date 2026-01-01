@@ -132,7 +132,7 @@ def do_br_plot(config, samples, epoch, writer):
         if not np.isfinite([G, H]).all():
             continue
 
-        vis = vt.SHVisualizer(G, H)
+        vis = vt.Visualizer(G, H)
         vis.plot_magnetogram()
 
         buff = BytesIO()
@@ -156,7 +156,7 @@ def do_field_line_plot(config, samples, epoch, writer):
         if not np.isfinite([G, H]).all():
             continue
 
-        vis = vt.SHVisualizer(G, H)
+        vis = vt.Visualizer(G, H)
         fig = vis.visualize_field_lines(r=1.1, grid_density=40)
 
         buff = BytesIO()

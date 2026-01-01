@@ -1,18 +1,18 @@
 import numpy as np
 
 # Name of the run, used for model checkpoints and tensorboard logs
-run_name = "experiment44-sliding-radii"
+run_name = "experiment47-fitrad-16radfit"
 
 # Training settings
-epochs = 100
+epochs = 500
 batch_size = 32
 max_train_batches = float("inf")
 max_test_batches = float("inf")
 # max_train_batches = 1
 # max_test_batches = 1
 
-restart_file = "checkpoints/experiment44-sliding-radii_7.pth"  # preload these weights prior to training
-start_epoch = 7  # zero indexed
+restart_file = 'checkpoints/experiment47-fitrad-16radfit_23.pth'  # preload these weights prior to training
+start_epoch = 23  # zero indexed
 
 # Learning rate and scheduler
 learning_rate = 0.0001
