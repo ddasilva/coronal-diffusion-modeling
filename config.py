@@ -1,7 +1,7 @@
 import numpy as np
 
 # Name of the run, used for model checkpoints and tensorboard logs
-run_name = "experiment47-fitrad-16radfit"
+run_name = "experiment48-gong"
 
 # Training settings
 epochs = 500
@@ -11,8 +11,8 @@ max_test_batches = float("inf")
 # max_train_batches = 1
 # max_test_batches = 1
 
-restart_file = 'checkpoints/experiment47-fitrad-16radfit_23.pth'  # preload these weights prior to training
-start_epoch = 23  # zero indexed
+restart_file = None  # preload these weights prior to training
+start_epoch = 0  # zero indexed
 
 # Learning rate and scheduler
 learning_rate = 0.0001
@@ -26,20 +26,22 @@ X_SIZE = 8281
 
 # Dataloader settings
 train_dataset_path = (
-    "/data/dedasilv/coronal-diffusion-modeling/training_dataset_noazrot.h5"
+    "/data/dedasilv/coronal-diffusion-modeling/training_dataset_gong.h5"
 )
-test_dataset_path = "/data/dedasilv/coronal-diffusion-modeling/test_dataset_noazrot.h5"
+test_dataset_path = "/data/dedasilv/coronal-diffusion-modeling/test_dataset_gong.h5"
 num_workers = 16
 
 # Data Augmenter settings (used by make_augmented_dataset.py). Path to WSA
 # FITS file directories and rotation delta
-train_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_train"
-test_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test"
+#train_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_train"
+#test_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test"
+train_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation_GONG/train"
+test_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation_GONG/test"
 delta_rot = 360  # degrees (set to no rotation- not needed for CNN)
 
 # Scalers and spherical harmonic fix matrix
-scalers_path = "data/scalers_16log.json"
-spharm_fit_mat_path = "data/spharm_fit_mat_16log.h5"
+scalers_path = "data/scalers_gong.json"
+spharm_fit_mat_path = "data/spharm_fit_mat_gong.h5"
 
 # Checkpoint plotting parameters for training. Flags whether to plot Br
 # (magnetograms) and field lines (traces) after each epoch. When they
