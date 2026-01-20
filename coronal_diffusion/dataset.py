@@ -49,8 +49,8 @@ class CoronalFieldDatasetHDF(Dataset):
     def __init__(self, path):
         self.hdf = h5py.File(path, "r")
         self.X = self.hdf["X"]
-        self.radio_fluxes = self.hdf["radio_fluxes"]
-
+        self.context = self.hdf["context"]
+        
     def __len__(self):
         return self.X.shape[0]
 
@@ -60,9 +60,9 @@ class CoronalFieldDatasetHDF(Dataset):
         coeffs = torch.zeros((nmax + 1, nmax + 1), dtype=torch.complex64)
         coeffs += G + H * 1j
 
-        radio_flux = torch.from_numpy(np.array([self.radio_fluxes[idx]])).float()
-
+        context = torch.from_numpy(np.array([self.context[idx]])).float()
+        
         if random.random() > 0.5:
             coeffs *= -1
 
-        return coeffs, radio_flux
+        return coeffs, context

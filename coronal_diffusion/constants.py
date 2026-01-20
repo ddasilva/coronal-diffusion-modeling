@@ -1,5 +1,7 @@
 import torch
 
+N_CONTEXT = 4    # Number of context items
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 timesteps = 1000

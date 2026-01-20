@@ -7,6 +7,7 @@ import numpy as np
 import torch_harmonics as th
 import math
 
+from coronal_diffusion.constants import N_CONTEXT
 import config
 from config import nmax, nlon, nlat, radii
 
@@ -67,7 +68,7 @@ class DiffusionModel(nn.Module):
         self,
         img_with_noise: torch.Tensor,
         noise_level: torch.Tensor,
-        radio_flux: torch.Tensor,
+        context: torch.Tensor,
     ) -> torch.Tensor:
         """
         Predict noise in the noisy image.
@@ -75,18 +76,13 @@ class DiffusionModel(nn.Module):
         Args:
             img_with_noise: Noisy images [B, n_channels, H, W]
             noise_level: Diffusion timestep normalized to [0, 1], shape [B] or [B, 1]
-            radio_flux: Conditioning scalar (solar activity), shape [B] or [B, 1]
+            context: Cshape (B, N_CONTEXT)
 
         Returns:
             Predicted noise [B, n_channels, H, W]
         """
-        # Ensure proper shapes
-        if noise_level.dim() == 2:
-            noise_level = noise_level.squeeze(-1)
-        if radio_flux.dim() == 1:
-            radio_flux = radio_flux.unsqueeze(-1)
+        return self.unet(img_with_noise, noise_level, context)
 
-        return self.unet(img_with_noise, noise_level, radio_flux)
 
 
 class SinusoidalPositionEmbeddings(nn.Module):
@@ -255,9 +251,9 @@ class UpBlock(nn.Module):
 
 class MultispectralDiffusionUNet(nn.Module):
     """
-    U-Net for multispectral image denoising with scalar context conditioning
+    U-Net for multispectral image denoising with multi-dimensional context conditioning
     Input shape: (B, 16, 180, 90) - 16 channels, 180 width, 90 height
-    Context: (B,) - scalar value per sample (already normalized)
+    Context: (B, N_CONTEXT) - N_CONTEXT features per sample
     """
 
     def __init__(
@@ -268,6 +264,7 @@ class MultispectralDiffusionUNet(nn.Module):
         channel_multipliers=(1, 2, 4, 8),
         time_emb_dim=256,
         context_emb_dim=256,
+        n_context=N_CONTEXT,  # NEW: number of context features
         use_attention_levels=(False, False, True, True),
         dropout=0.1,
     ):
@@ -275,6 +272,7 @@ class MultispectralDiffusionUNet(nn.Module):
 
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.n_context = n_context
 
         # Combined embedding dimension
         combined_emb_dim = time_emb_dim + context_emb_dim
@@ -287,9 +285,11 @@ class MultispectralDiffusionUNet(nn.Module):
             nn.Linear(time_emb_dim, time_emb_dim),
         )
 
-        # Context embedding (for scalar values)
+        # Context embedding (for multi-dimensional context vectors)
+        # NEW: Use MLP instead of sinusoidal embeddings for flexibility
         self.context_embed = nn.Sequential(
-            SinusoidalPositionEmbeddings(context_emb_dim),
+            nn.Linear(n_context, context_emb_dim),
+            nn.SiLU(),
             nn.Linear(context_emb_dim, context_emb_dim),
             nn.SiLU(),
             nn.Linear(context_emb_dim, context_emb_dim),
@@ -365,23 +365,30 @@ class MultispectralDiffusionUNet(nn.Module):
         Args:
             x: Input tensor of shape (B, 16, 180, 90)
             timesteps: Timesteps tensor of shape (B,)
-            context: Scalar context tensor of shape (B,) or (B, 1) - already normalized
+            context: Context tensor of shape (B, N_CONTEXT)
 
         Returns:
             Denoised output of shape (B, 16, 180, 90)
         """
-        # Handle context shape
-        if context.dim() == 2:
-            context = context.squeeze(-1)
+        # Ensure context is 2D: (B, N_CONTEXT)
+        if context.dim() == 1:
+            context = context.unsqueeze(-1)
 
         # Get embeddings
         time_emb = self.time_embed(timesteps)
-        context_emb = self.context_embed(context)
+        context_emb = self.context_embed(context)  # Now handles (B, N_CONTEXT) input
 
+        # Ensure both embeddings are 2D
+        if time_emb.dim() != 2:
+            time_emb = time_emb.view(time_emb.size(0), -1)
+        if context_emb.dim() != 2:
+            context_emb = context_emb.view(context_emb.size(0), -1)
+                
         # Combine embeddings
         combined_emb = torch.cat([time_emb, context_emb], dim=-1)
         combined_emb = self.combined_mlp(combined_emb)
 
+   
         # Initial conv
         x = self.conv_in(x)
 

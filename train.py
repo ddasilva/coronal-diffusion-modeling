@@ -97,17 +97,17 @@ def do_img_plot(config, samples, epoch, writer):
             epoch + 1,
         )
 
-
+        
 def get_samples(config, model):
     print("Sampling....")
 
     tasks = [
         (
-            0.0,
+            (0.0, 450, 0.0, 0.0),
             "Solar Minimum",
         ),
         (
-            1.0,
+            (1.0, 450, 0.0, 0.0),
             "Solar Maximum",
         ),
     ]
@@ -116,10 +116,10 @@ def get_samples(config, model):
 
     return_value = {}
 
-    for radio_flux, subtitle in tasks:
+    for context, subtitle in tasks:
         print(f"Sampling {subtitle}")
         return_value[subtitle] = sampler.sample(
-            sampling_data, model=model, radio_flux=radio_flux
+            sampling_data, model=model, context=context
         )
 
     return return_value
@@ -189,14 +189,14 @@ def do_train_loop(
     epoch_loss = 0.0
     num_batches = 0
 
-    for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
+    for batch_idx, (orig_coeffs, context) in progress_bar:
         # Break if reached max batch
         if batch_idx == config.max_train_batches:
             break
 
         # Move inputs to GPU
         orig_coeffs = orig_coeffs.to(constants.device)
-        radio_flux = radio_flux.to(constants.device)
+        context = context.to(constants.device)
 
         # Normalize inputs
         img_true = get_potential_images(model, orig_coeffs, config.radii, scalers_dict)
@@ -215,7 +215,7 @@ def do_train_loop(
         optimizer.zero_grad()
 
         img_pred_noise = model(
-            img_with_noise, noise_level=noise_level, radio_flux=radio_flux
+            img_with_noise, noise_level=noise_level, context=context
         )
 
         loss = F.mse_loss(true_noise, img_pred_noise)
@@ -281,14 +281,14 @@ def do_test_loop(
     epoch_loss = 0.0
     num_batches = 0
 
-    for batch_idx, (orig_coeffs, radio_flux) in progress_bar:
+    for batch_idx, (orig_coeffs, context) in progress_bar:
         # Break if reached max batch
         if batch_idx == config.max_test_batches:
             break
 
         # Move inputs to GPU
         orig_coeffs = orig_coeffs.to(constants.device)
-        radio_flux = radio_flux.to(constants.device)
+        context = context.to(constants.device)
 
         # Normalize inputs
         img_true = get_potential_images(model, orig_coeffs, config.radii, scalers_dict)
@@ -305,7 +305,7 @@ def do_test_loop(
 
         # Call model, loss, and backpropagation
         img_pred_noise = model(
-            img_with_noise, noise_level=noise_level, radio_flux=radio_flux
+            img_with_noise, noise_level=noise_level, context=context
         )
 
         # Backpropagation

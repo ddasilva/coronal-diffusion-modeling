@@ -11,7 +11,7 @@ import torch.optim as optim
 
 
 from coronal_diffusion import constants, models
-from coronal_diffusion.constants import device
+from coronal_diffusion.constants import device, N_CONTEXT
 from coronal_diffusion.utils import flat_to_GH
 import config
 
@@ -44,7 +44,7 @@ def sample(
     sampling_data,
     weights_file=None,
     model=None,
-    radio_flux=0,
+    context=(0.0, 400, 0.0),
     n=20,
     eta=0.1,
     method='ddpm',
@@ -60,17 +60,17 @@ def sample(
         model.eval()
 
     # Run deterministic diffusion process nsteps times
-    radio_flux = (
-        torch.from_numpy(np.array([radio_flux]).reshape(1, -1))
+    context = (
+        torch.from_numpy(np.array(context).reshape(1, N_CONTEXT))
         .float()
         .to(constants.device)
     )
 
     # Call sample_ddim
     if method == 'ddim':
-        imgs, history_pred_noise = sample_ddim(model, radio_flux, n, eta)
+        imgs, history_pred_noise = sample_ddim(model, context, n, eta)
     elif method == 'ddpm':
-        imgs = sample_ddpm(model, radio_flux)
+        imgs = sample_ddpm(model, context)
         
     # Perform sphericla harmonic fit of last image
     G, H = spherical_harm_fit_smaller(imgs[-1], sampling_data)
@@ -115,7 +115,7 @@ def spherical_harm_fit_smaller(img, sampling_data, fitrad=config.radii.size):
 
 
 @torch.no_grad()
-def sample_ddim(model, radio_flux, n, eta):
+def sample_ddim(model, context, n, eta):
     # sample initial noise
     nrad = config.radii.size
     shape = (1, nrad, config.nlat, config.nlon)
@@ -129,7 +129,7 @@ def sample_ddim(model, radio_flux, n, eta):
     for i in range(constants.timesteps, 0, -step_size):
         t = torch.tensor([i / constants.timesteps]).to(constants.device)
 
-        pred_noise = model(img, noise_level=t, radio_flux=radio_flux)
+        pred_noise = model(img, noise_level=t, context=context)
         pred_noise_all.append(pred_noise.squeeze().detach().cpu().numpy())
 
         print(f"\rDenoising Step {i}", end="")
@@ -218,12 +218,12 @@ def denoise_ddpm(x, t_idx, eps):
 
 
 @torch.no_grad()
-def sample_ddpm(model, radio_flux):
+def sample_ddpm(model, context):
     """
     DDPM ancestral sampling (standard diffusion sampling, not deterministic like DDIM).
     Args:
         model: The trained diffusion model.
-        radio_flux: Conditioning variable.
+        context: Conditioning variable.
         n: Number of steps to sample.
     Returns:
         history: np.ndarray of generated samples at each step.
@@ -236,7 +236,7 @@ def sample_ddpm(model, radio_flux):
     for t_idx in reversed(range(1, constants.timesteps + 1)):
         print(f"\rDenoising Step {t_idx}              ", end="")
         t = torch.tensor([t_idx / constants.timesteps]).to(constants.device)
-        eps = model(x, noise_level=t, radio_flux=radio_flux)  # predict noise e_(x_t,t)
+        eps = model(x, noise_level=t, context=context)  # predict noise e_(x_t,t)
         x = denoise_ddpm(x, t_idx, eps)
         history.append(x.squeeze().cpu().numpy())
     print()
