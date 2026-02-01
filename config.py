@@ -1,7 +1,7 @@
 import numpy as np
 
 # Name of the run, used for model checkpoints and tensorboard logs
-run_name = "experiment50-vsw-context"
+run_name = "experiment52-Vsw-fix-fillvalue"
 
 # Training settings
 epochs = 500
@@ -25,6 +25,7 @@ fit_nmax = 45
 X_SIZE = 8281
 
 # Dataloader settings
+
 train_dataset_path = (
     "/data/dedasilv/coronal-diffusion-modeling/training_dataset_gong_with_sw.h5"
 )

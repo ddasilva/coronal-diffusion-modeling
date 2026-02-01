@@ -63,18 +63,14 @@ class Visualizer:
             x = field_line[-1][0] + Bx * step_size
             y = field_line[-1][1] + By * step_size
             z = field_line[-1][2] + Bz * step_size
-
+            field_line.append((x, y, z))
+            
             r = np.sqrt(x**2 + y**2 + z**2)
             if r > OUTER_BOUNDARY:
-                if closed_only:
-                    return None, None
-                else:
-                    color = "blue" if Br > 0 else "red"
-                    break
+                color = "blue" if Br > 0 else "red"
+                break
             if r < INNER_BOUNDARY:
                 break
-
-            field_line.append((x, y, z))
 
         return field_line, color
 
@@ -107,11 +103,12 @@ class Visualizer:
         step_size = 0.01  # Step size
         max_steps = 1000  # Maximum number of steps to trace
 
-        lat_values = np.linspace(-89, 89, grid_density)
-        lon_values = np.linspace(0, 359, grid_density)
+        lat_values = np.linspace(-89.9, 89.9, grid_density // 2, endpoint=False)
+        lon_values = np.linspace(-180, 180, grid_density, endpoint=False)
 
-        ch_map = np.ones((lat_values.size, lon_values.size), dtype=bool)
-
+        footpoints_lat = []
+        footpoints_lon = []
+        
         for i, lat_deg in enumerate(lat_values):
             for j, lon_deg in enumerate(lon_values):
                 for dir in [-1, 1]:
@@ -122,9 +119,20 @@ class Visualizer:
                         start_point, dir * step_size, max_steps, closed_only=True
                     )
 
-                    if field_line is None:
-                        ch_map[i, j] = 0
-
+                    last_r, last_lat, last_lon = cs.cart2sp(*field_line[-1])
+                    
+                    if last_r < INNER_BOUNDARY:
+                        last_lat = np.rad2deg(last_lat)
+                        last_lon = np.rad2deg(last_lon)
+                        footpoints_lat.append(last_lat)
+                        footpoints_lon.append(last_lon)
+                        
+        hist, _, _ = np.histogram2d(
+            footpoints_lat, footpoints_lon,
+            bins=[lat_values, lon_values]
+        )
+        ch_map = (hist > 0).astype(float)
+        
         return lat_values, lon_values, ch_map
 
     def plot_coronal_holes(self, grid_density=10):

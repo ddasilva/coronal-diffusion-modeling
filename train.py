@@ -103,11 +103,11 @@ def get_samples(config, model):
 
     tasks = [
         (
-            (0.0, 450, 0.0, 0.0),
+            (0.0, 450, 0, 0),
             "Solar Minimum",
         ),
         (
-            (1.0, 450, 0.0, 0.0),
+            (1.0, 450, 0, 0),
             "Solar Maximum",
         ),
     ]

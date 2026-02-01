@@ -1,4 +1,3 @@
-
 import glob
 import os
 import datetime
@@ -37,7 +36,11 @@ def main(root_dir, out_file):
     df_sw = pd.read_csv('data/ace_obs.csv.gz')
     df_sw['times'] = pd.to_datetime(df_sw['times'])
     df_sw['times_date2num'] = date2num(df_sw['times'])
-    df_sw = df_sw.interpolate() # interp over NaN's
+
+    Vsw = df_sw['Vp_obs'].values.copy()  # interp over fill values
+    Vsw[Vsw == 0] = np.nan
+    df_sw['Vp_obs'] = Vsw
+    df_sw = df_sw.interpolate() 
     
     df_locs = pd.read_csv('data/ace_locs.csv')
     df_locs['time'] = pd.to_datetime(df_locs['time'])
@@ -74,9 +77,7 @@ def main(root_dir, out_file):
     
     # Normalize the radio fluxes and write
     radio_fluxes = context[:, 0]
-    #radio_fluxes[radio_fluxes == 0] = radio_fluxes[radio_fluxes > 0].min()
-
-    print(radio_fluxes[radio_fluxes == 0])
+    radio_fluxes[radio_fluxes == 0] = radio_fluxes[radio_fluxes > 0].min()
     radio_fluxes = radio_fluxes - np.min(radio_fluxes)
     radio_fluxes /= np.max(radio_fluxes)
     context[:, 0] = radio_fluxes
@@ -127,10 +128,17 @@ def process_file(file, df_radio, df_sw, df_locs):
         )
     )
 
-    earth_lon_idx = np.argmin(
-        df_locs['time'] - time
-    )
-    earth_lon = df_locs['sat_lon'].iloc[earth_lon_idx]
+    # Smart interpolation for longitude with wrapping
+    idx = df_locs.time.searchsorted(time)
+    time0, lon0 = (df_locs.time_date2num[idx - 1], df_locs.sat_lon[idx - 1])
+    time1, lon1 = (df_locs.time_date2num[idx], df_locs.sat_lon[idx])
+
+    if lon0 < lon1:
+        lon0 += 360    # handle wrapping
+
+    fade_param = (date2num(time) - time0) / (time1 - time0) # between 0 and 1
+    earth_lon = lon0 + fade_param * (lon1 - lon0)
+    earth_lon = earth_lon % 360
     
     earth_lat = float(
         np.interp(
@@ -139,7 +147,8 @@ def process_file(file, df_radio, df_sw, df_locs):
             df_locs['sat_lat'],
         )
     )
-    
+
+    # Collect results
     results = []
 
     cur_context = np.array([
@@ -148,7 +157,7 @@ def process_file(file, df_radio, df_sw, df_locs):
         earth_lat,
         earth_lon,
     ])
-    
+
     for G, H in enumerate_variations(file):
         results.append((G, H, cur_context))
 
