@@ -58,10 +58,10 @@ class DiffusionModel(nn.Module):
         self.unet = MultispectralDiffusionUNet(
             in_channels=self.n_channels,
             out_channels=self.n_channels,
-            base_channels=64,
+            base_channels=128,
             channel_multipliers=(1, 2, 4, 8),
             time_emb_dim=256,
-            context_emb_dim=256,
+            context_emb_dim=512,
         )
 
     def forward(

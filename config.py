@@ -1,11 +1,11 @@
 import numpy as np
 
 # Name of the run, used for model checkpoints and tensorboard logs
-run_name = "experiment52-Vsw-fix-fillvalue"
+run_name = "experiment54-hemi"
 
 # Training settings
 epochs = 500
-batch_size = 32
+batch_size = 12
 max_train_batches = float("inf")
 max_test_batches = float("inf")
 #max_train_batches = 1
@@ -25,17 +25,14 @@ fit_nmax = 45
 X_SIZE = 8281
 
 # Dataloader settings
-
 train_dataset_path = (
-    "/data/dedasilv/coronal-diffusion-modeling/training_dataset_gong_with_sw.h5"
+    "/data/dedasilv/coronal-diffusion-modeling/training_dataset_gong_hemi.h5"
 )
-test_dataset_path = "/data/dedasilv/coronal-diffusion-modeling/test_dataset_gong_with_sw.h5"
+test_dataset_path = "/data/dedasilv/coronal-diffusion-modeling/test_dataset_gong_hemi.h5"
 num_workers = 16
 
 # Data Augmenter settings (used by make_augmented_dataset.py). Path to WSA
 # FITS file directories and rotation delta
-#train_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_train"
-#test_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation/CoronalFieldExtrapolation_test"
 train_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation_GONG/train"
 test_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation_GONG/test"
 

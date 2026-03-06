@@ -103,13 +103,22 @@ def get_samples(config, model):
 
     tasks = [
         (
-            (0.0, 450, 0, 0),
+            (0, 0, 0, 0, 1, -1),
             "Solar Minimum",
         ),
         (
-            (1.0, 450, 0, 0),
+            (0, 0, 0, 0, -1, 1),
+            "Solar Minimum - Opposite Leading Polarity",
+        ),
+        (
+            (50, 50, 10, 10, 1, -1),
             "Solar Maximum",
         ),
+        (
+            (50, 50, 10, 10, -1, 1),
+            "Solar Maximum - Opposite Leading Polarity",
+        ),
+
     ]
 
     sampling_data = sampler.load_sampling_data()
@@ -119,7 +128,7 @@ def get_samples(config, model):
     for context, subtitle in tasks:
         print(f"Sampling {subtitle}")
         return_value[subtitle] = sampler.sample(
-            sampling_data, model=model, context=context
+            sampling_data, model=model, context=context, method='ddim',
         )
 
     return return_value

@@ -11,37 +11,37 @@ from coronal_diffusion.utils import flat_to_GH
 from config import nmax
 
 
-class CoronalFieldDataset(Dataset):
+# class CoronalFieldDataset(Dataset):
 
-    def __init__(self, root_dir):
-        self.files = glob.glob(f"{root_dir}/*R000*.fits")
-        assert len(self) > 0
-        self.cache = {}
+#     def __init__(self, root_dir):
+#         self.files = glob.glob(f"{root_dir}/*R000*.fits")
+#         assert len(self) > 0
+#         self.cache = {}
 
-    def __len__(self):
-        return len(self.files)
+#     def __len__(self):
+#         return len(self.files)
 
-    def __getitem__(self, idx):
+#     def __getitem__(self, idx):
 
-        if idx in self.cache:
-            return self.cache[idx]
+#         if idx in self.cache:
+#             return self.cache[idx]
 
-        wsa_path = os.path.join(self.files[idx])
-        fits_file = fits.open(wsa_path)
-        sph_data = fits_file[3].data.copy()
-        fits_file.close()
-        output = torch.from_numpy(
-            np.array(
-                [
-                    sph_data[0, :, :][np.triu_indices(sph_data.shape[1])],
-                    sph_data[1, :, :][np.triu_indices(sph_data.shape[1])],
-                ]
-            )
-        ).flatten()
+#         wsa_path = os.path.join(self.files[idx])
+#         fits_file = fits.open(wsa_path)
+#         sph_data = fits_file[3].data.copy()
+#         fits_file.close()
+#         output = torch.from_numpy(
+#             np.array(
+#                 [
+#                     sph_data[0, :, :][np.triu_indices(sph_data.shape[1])],
+#                     sph_data[1, :, :][np.triu_indices(sph_data.shape[1])],
+#                 ]
+#             )
+#         ).flatten()
 
-        self.cache[idx] = output
+#         self.cache[idx] = output
 
-        return output
+#         return output
 
 
 class CoronalFieldDatasetHDF(Dataset):
@@ -61,8 +61,13 @@ class CoronalFieldDatasetHDF(Dataset):
         coeffs += G + H * 1j
 
         context = torch.from_numpy(np.array([self.context[idx]])).float()
-        
+
         if random.random() > 0.5:
+            # Invert field line polarity
             coeffs *= -1
 
+            # Change the hemispheric leading polarities
+            context[:, -2] *= -1
+            context[:, -1] *= -1
+        
         return coeffs, context

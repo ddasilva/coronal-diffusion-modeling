@@ -1,6 +1,6 @@
 import torch
 
-N_CONTEXT = 4    # Number of context items
+N_CONTEXT = 6    # Number of context items
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

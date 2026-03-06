@@ -9,58 +9,38 @@ import tqdm
 import h5py
 import pandas as pd
 from matplotlib.dates import date2num
+from scipy.interpolate import make_smoothing_spline
 
 from coronal_diffusion.constants import N_CONTEXT
 import config
 
 
 def main(root_dir, out_file):
-    # Load the radio flux data (3X / day)
-    df_radio = pd.read_csv(
-        "data/penticton_radio_flux.csv",
-        names=["times", "observed_flux", "adjusted_flux"],
-        skiprows=1,
-        parse_dates=["times"],
-    )
-    df_radio.sort_values(by="times", inplace=True)
-    df_radio.drop_duplicates(subset=["times"], keep="first", inplace=True)
-
-
-    df_radio["adjusted_flux_smoothed"] = (
-        df_radio["adjusted_flux"].rolling(window=3 * 365).median()
+    # Issue warning for the adventourous traveler
+    print(
+        "Warning: using hardcoded leading polarity, valid for training data between "
+        "2010-2020 only."
     )
 
-    df_radio['times_date2num'] = date2num(df_radio['times'])
-    
-    # Load solar wind observations and positions
-    df_sw = pd.read_csv('data/ace_obs.csv.gz')
-    df_sw['times'] = pd.to_datetime(df_sw['times'])
-    df_sw['times_date2num'] = date2num(df_sw['times'])
+    # Load hemispheric median latitudes of sunspots
+    df_hemi_lat = pd.read_csv("data/hemispheric_median_lats.csv", parse_dates=["times"])
 
-    Vsw = df_sw['Vp_obs'].values.copy()  # interp over fill values
-    Vsw[Vsw == 0] = np.nan
-    df_sw['Vp_obs'] = Vsw
-    df_sw = df_sw.interpolate() 
-    
-    df_locs = pd.read_csv('data/ace_locs.csv')
-    df_locs['time'] = pd.to_datetime(df_locs['time'])
-    df_locs['time_date2num'] = date2num(df_locs['time'])
+    # Load hemispheric sunspot numbers
+    df_hemi_ss = load_df_hemi_ss()
     
     # Load magnetic field data
     files = glob.glob(f"{root_dir}/*.fits")
     files.sort()
 
     hdf = h5py.File(out_file, "w")
-    items_shape = (len(files), config.X_SIZE)
+    items_shape = (2 * len(files), config.X_SIZE)
     items = hdf.create_dataset("X", items_shape, dtype=np.float32)
-    context = np.zeros(
-        (len(files), N_CONTEXT), dtype=np.float32
-    )
+    context = np.zeros((2 * len(files), N_CONTEXT), dtype=np.float32)
 
     counter = 0
 
     for file in tqdm.tqdm(files):
-        results = process_file(file, df_radio, df_sw, df_locs)
+        results = process_file(file, df_hemi_ss, df_hemi_lat)
 
         for G, H, cur_context in results:
             items[counter] = np.concatenate(
@@ -74,20 +54,21 @@ def main(root_dir, out_file):
             counter += 1
 
     assert counter == items_shape[0]
-    
-    # Normalize the radio fluxes and write
-    radio_fluxes = context[:, 0]
-    radio_fluxes[radio_fluxes == 0] = radio_fluxes[radio_fluxes > 0].min()
-    radio_fluxes = radio_fluxes - np.min(radio_fluxes)
-    radio_fluxes /= np.max(radio_fluxes)
-    context[:, 0] = radio_fluxes
-    
+
     hdf["context"] = context
 
     hdf.close()
 
 
-def enumerate_variations(file_path):
+def enumerate_variations(
+    file_path,
+    hemi_ss_n,
+    hemi_ss_s,
+    hemi_med_lat_n,
+    hemi_med_lat_s,
+    hemi_lead_pol_n,
+    hemi_lead_pol_s,
+):
     fits_file = fits.open(file_path)
     sph_data = fits_file[3].data.copy()
     fits_file.close()
@@ -100,68 +81,119 @@ def enumerate_variations(file_path):
         coeffs_array, normalization="schmidt", r0=1
     )
     coeffs = coeffs.convert(normalization="ortho")
-    #coeffs = coeffs.rotate(alpha=-earth_lon, beta=0, gamma=0, degrees=True)
-    yield coeffs.coeffs[0], coeffs.coeffs[1]
-    
-    #flip_coeffs = coeffs.copy().rotate(alpha=0, beta=180, gamma=0, degrees=True)
-    #yield flip_coeffs.coeffs[0], flip_coeffs.coeffs[1]
+
+    # Normal orientation
+    context = [
+        hemi_ss_n,
+        hemi_ss_s,
+        hemi_med_lat_n,
+        hemi_med_lat_s,
+        hemi_lead_pol_n,
+        hemi_lead_pol_s,
+    ]
+    yield coeffs.coeffs[0], coeffs.coeffs[1], context
+
+    # Top/Down flip
+    flip_coeffs = coeffs.copy().rotate(alpha=0, beta=180, gamma=0, degrees=True)
+    context = [
+        hemi_ss_s,
+        hemi_ss_n,
+        hemi_med_lat_s,
+        hemi_med_lat_n,
+        hemi_lead_pol_s,
+        hemi_lead_pol_n,
+    ]
+    yield flip_coeffs.coeffs[0], flip_coeffs.coeffs[1], context
 
 
-def process_file(file, df_radio, df_sw, df_locs):
+def process_file(file, df_hemi_ss, df_hemi_lat):
+    # Get time of the file
     time = datetime.datetime.strptime(
         os.path.basename(file).split("R")[0], "wsa_%Y%m%d%H%M"
     )
-    
-    radio_flux = float(
-        np.interp(
-            date2num(pd.Timestamp(time)),
-            df_radio['times_date2num'],
-            df_radio["adjusted_flux_smoothed"],
+
+    # Hemispheric sunspot number
+    i = df_hemi_ss.times.searchsorted(time)
+    if i in (0, len(df_hemi_ss)):
+        raise RuntimeError(f"Insufficient hemispheric sunspot number data: {time}")
+
+    hemi_ss_n = df_hemi_ss.iloc[i]["sunspot_north_smooth"]
+    hemi_ss_s = df_hemi_ss.iloc[i]["sunspot_south_smooth"]
+
+    # Hemispheric sunspot median latitude
+    i = df_hemi_lat.times.searchsorted(time)
+    if i in (0, len(df_hemi_lat)):
+        raise RuntimeError(
+            f"Insufficient median latitude hemispheric sunspot data {time}"
         )
-    )
 
-    Vsw = float(
-        np.interp(
-            date2num(pd.Timestamp(time)),
-            df_sw["times_date2num"],
-            df_sw['Vp_obs']
-        )
-    )
+    hemi_med_lat_n = abs(df_hemi_lat.iloc[i]["MedianLatNorth_Smoothed"])
+    hemi_med_lat_s = abs(df_hemi_lat.iloc[i]["MedianLatSouth_Smoothed"])
 
-    # Smart interpolation for longitude with wrapping
-    idx = df_locs.time.searchsorted(time)
-    time0, lon0 = (df_locs.time_date2num[idx - 1], df_locs.sat_lon[idx - 1])
-    time1, lon1 = (df_locs.time_date2num[idx], df_locs.sat_lon[idx])
-
-    if lon0 < lon1:
-        lon0 += 360    # handle wrapping
-
-    fade_param = (date2num(time) - time0) / (time1 - time0) # between 0 and 1
-    earth_lon = lon0 + fade_param * (lon1 - lon0)
-    earth_lon = earth_lon % 360
-    
-    earth_lat = float(
-        np.interp(
-            date2num(pd.Timestamp(time)),
-            df_locs["time_date2num"],
-            df_locs['sat_lat'],
-        )
-    )
+    # Hemispheric leading polarity (hardcoded for now)
+    # these will also be flipped in the dataloader if harmonics are inverted from RNG
+    assert 2010 <= time.year <= 2020
+    hemi_lead_pol_n = 1
+    hemi_lead_pol_s = -1
 
     # Collect results
     results = []
 
-    cur_context = np.array([
-        radio_flux,
-        Vsw,
-        earth_lat,
-        earth_lon,
-    ])
-
-    for G, H in enumerate_variations(file):
+    for G, H, cur_context in enumerate_variations(
+        file,
+        hemi_ss_n,
+        hemi_ss_s,
+        hemi_med_lat_n,
+        hemi_med_lat_s,
+        hemi_lead_pol_n,
+        hemi_lead_pol_s,
+    ):
         results.append((G, H, cur_context))
 
     return results
+
+
+def load_df_hemi_ss():
+    column_names = [
+        "year",
+        "month",
+        "day",
+        "date_fraction",
+        "sunspot_total",
+        "sunspot_north",
+        "sunspot_south",
+        "std_total",
+        "std_north",
+        "std_south",
+        "n_obs_total",
+        "n_obs_north",
+        "n_obs_south",
+        "provisional_marker",
+    ]
+
+    df_hemi_ss = pd.read_csv(
+        "data/SN_d_hem_V2.0.txt",
+        sep=r"\s+",  # Split on whitespace
+        names=column_names,
+        na_values=-1,  # Convert -1 to NaN (optional)
+    )
+    df_hemi_ss["times"] = pd.to_datetime(df_hemi_ss[["year", "month", "day"]])
+    df_hemi_ss = df_hemi_ss[["times", "sunspot_north", "sunspot_south"]]
+
+    # Smoth hemispheric sunspot number
+    smoothing_lam = 1e6
+
+    sp = make_smoothing_spline(
+        date2num(df_hemi_ss.times), df_hemi_ss.sunspot_north, lam=smoothing_lam
+    )
+    df_hemi_ss["sunspot_north_smooth"] = sp(date2num(df_hemi_ss.times))
+
+    sp = make_smoothing_spline(
+        date2num(df_hemi_ss.times), df_hemi_ss.sunspot_south, lam=smoothing_lam
+    )
+    df_hemi_ss["sunspot_south_smooth"] = sp(date2num(df_hemi_ss.times))
+
+    return df_hemi_ss
 
 
 if __name__ == "__main__":
