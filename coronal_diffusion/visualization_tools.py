@@ -99,15 +99,14 @@ class Visualizer:
 
         return field_lines, colors
 
-    def get_coronal_holes(self, grid_density, r=2.49):
+    def get_coronal_holes(self, grid_density, r=1.1):
         step_size = 0.01  # Step size
-        max_steps = 1000  # Maximum number of steps to trace
+        max_steps = 100000  # Maximum number of steps to trace
 
-        lat_values = np.linspace(-89.9, 89.9, grid_density // 2, endpoint=False)
+        lat_values = np.linspace(-89, 89, grid_density // 2, endpoint=False)
         lon_values = np.linspace(-180, 180, grid_density, endpoint=False)
 
-        footpoints_lat = []
-        footpoints_lon = []
+        open_fl = np.zeros((lat_values.size, lon_values.size))
         
         for i, lat_deg in enumerate(lat_values):
             for j, lon_deg in enumerate(lon_values):
@@ -121,22 +120,13 @@ class Visualizer:
 
                     last_r, last_lat, last_lon = cs.cart2sp(*field_line[-1])
                     
-                    if last_r < INNER_BOUNDARY:
-                        last_lat = np.rad2deg(last_lat)
-                        last_lon = np.rad2deg(last_lon)
-                        footpoints_lat.append(last_lat)
-                        footpoints_lon.append(last_lon)
+                    if last_r > 2.49:
+                        open_fl[i, j] = 1
                         
-        hist, _, _ = np.histogram2d(
-            footpoints_lat, footpoints_lon,
-            bins=[lat_values, lon_values]
-        )
-        ch_map = (hist > 0).astype(float)
-        
-        return lat_values, lon_values, ch_map
+        return lat_values, lon_values, open_fl
 
-    def plot_coronal_holes(self, grid_density=10):
-        lat_values, lon_values, ch_map = self.get_coronal_holes(grid_density)
+    def plot_coronal_holes(self, grid_density=10, r=1.01):
+        lat_values, lon_values, ch_map = self.get_coronal_holes(grid_density, r=r)
         plt.pcolor(lon_values, lat_values, ch_map)
         plt.colorbar().set_label("Coronal Hole")
 
@@ -221,9 +211,9 @@ class Visualizer:
             plt.colorbar().set_label("Br (T)")
             plt.title(f"$B_r$ at r={r} $R_\\odot$", fontsize=18)
 
-    def plot_current_sheet(self, r=5, ax=None):
+    def plot_current_sheet(self, r=2.5, ax=None):
         self.plot_magnetogram(r=r, sign=True, ax=ax)
-
+        
     def get_magnetogram(self, r):
         # Get magnetogram data
         lat_axis = np.arange(-89, 90, 1)

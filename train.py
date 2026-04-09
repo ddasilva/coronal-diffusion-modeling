@@ -28,12 +28,12 @@ def save_checkpoint(model, config, epoch):
     print("Model checkpoint:", out_path)
 
 
-def get_dataloaders(config):
+def get_dataloaders(config, shuffle=True):
     train_dataset = CoronalFieldDatasetHDF(config.train_dataset_path)
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=config.batch_size,
-        shuffle=True,
+        shuffle=shuffle,
         num_workers=config.num_workers,
     )
 
@@ -41,7 +41,7 @@ def get_dataloaders(config):
     test_dataloader = DataLoader(
         test_dataset,
         batch_size=config.batch_size,
-        shuffle=True,
+        shuffle=shuffle,
         num_workers=config.num_workers,
     )
 

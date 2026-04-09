@@ -44,7 +44,7 @@ def sample(
     sampling_data,
     weights_file=None,
     model=None,
-    context=(0.0, 400, 0.0),
+    context=(50, 50, 10, 10, 1, -1),
     n=20,
     eta=0.1,
     method='ddpm',
