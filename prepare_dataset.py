@@ -15,6 +15,7 @@ from coronal_diffusion.constants import N_CONTEXT
 import config
 
 
+
 def main(root_dir, out_file):
     # Issue warning for the adventourous traveler
     print(
@@ -23,7 +24,7 @@ def main(root_dir, out_file):
     )
 
     # Load hemispheric median latitudes of sunspots
-    df_hemi_lat = pd.read_csv("data/hemispheric_median_lats.csv", parse_dates=["times"])
+    df_hemi_lat = load_df_hemi_lat()
 
     # Load hemispheric sunspot numbers
     df_hemi_ss = load_df_hemi_ss()
@@ -194,6 +195,9 @@ def load_df_hemi_ss():
     df_hemi_ss["sunspot_south_smooth"] = sp(date2num(df_hemi_ss.times))
 
     return df_hemi_ss
+
+def load_df_hemi_lat():
+     return pd.read_csv("data/hemispheric_median_lats.csv", parse_dates=["times"])
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ def sample(
     eta=0.1,
     method='ddpm',
     return_history=False,
+    verbose=True,
 ):
     # Check command line arguments
     assert weights_file or model, "Must provide either weights_file= or model="
@@ -68,12 +69,12 @@ def sample(
 
     # Call sample_ddim
     if method == 'ddim':
-        imgs, history_pred_noise = sample_ddim(model, context, n, eta)
+        imgs, history_pred_noise = sample_ddim(model, context, n, eta, verbose)
     elif method == 'ddpm':
-        imgs = sample_ddpm(model, context)
+        imgs = sample_ddpm(model, context, verbose)
         
     # Perform sphericla harmonic fit of last image
-    G, H = spherical_harm_fit_smaller(imgs[-1], sampling_data)
+    G, H = spherical_harm_fit_smaller(imgs[-1], sampling_data, verbose)
 
     # Branch based on return_history
     if return_history:
@@ -82,7 +83,7 @@ def sample(
         return imgs[-1], (G, H)
 
 
-def spherical_harm_fit_smaller(img, sampling_data, fitrad=config.radii.size):
+def spherical_harm_fit_smaller(img, sampling_data, verbose=True, fitrad=config.radii.size):
     # Rescale image -------------------------------------
     img_rescaled = np.zeros(img.shape)
     nrad, nlat, nlon = img.shape
@@ -101,7 +102,9 @@ def spherical_harm_fit_smaller(img, sampling_data, fitrad=config.radii.size):
         b[start_row:end_row] = torch.tensor(img_rescaled[i].flatten(), device=device)
 
     # New approcah
-    print(f"Fitting spherical harmonics ({config.fit_nmax})")
+    if verbose:
+        print(f"Fitting spherical harmonics ({config.fit_nmax})")
+    
     X = np.zeros(sampling_data.A.shape[1] + 1)
     X[1:] = (
         torch.linalg.lstsq(sampling_data.A[: fitrad * nlat * nlon, :], b)[0]
@@ -115,7 +118,7 @@ def spherical_harm_fit_smaller(img, sampling_data, fitrad=config.radii.size):
 
 
 @torch.no_grad()
-def sample_ddim(model, context, n, eta):
+def sample_ddim(model, context, n, eta, verbose=True):
     # sample initial noise
     nrad = config.radii.size
     shape = (1, nrad, config.nlat, config.nlon)
@@ -132,12 +135,14 @@ def sample_ddim(model, context, n, eta):
         pred_noise = model(img, noise_level=t, context=context)
         pred_noise_all.append(pred_noise.squeeze().detach().cpu().numpy())
 
-        print(f"\rDenoising Step {i}", end="")
+        if verbose:
+            print(f"\rDenoising Step {i}", end="")
 
         img = denoise_ddim(img, i, i - step_size, pred_noise, eta)
         img_all.append(img.squeeze().detach().cpu().numpy())
 
-    print()
+    if verbose:
+        print()
 
     history = np.stack(img_all)
     history_pred_noise = np.stack(pred_noise_all)
@@ -165,21 +170,21 @@ def denoise_ddim(x, t, t_prev, pred_noise, eta):
     ab = constants.ab_t[t]
     ab_prev = constants.ab_t[t_prev]
 
-    # Predict x0 (original sample)
-    x0_pred = ab_prev.sqrt() / ab.sqrt() * (x - (1 - ab).sqrt() * pred_noise)
+    # Predict x0 and then form the DDIM update using the correct coefficient
+    # on the predicted-noise term when stochasticity is enabled.
+    x0_pred = (x - (1 - ab).sqrt() * pred_noise) / ab.sqrt()
 
-    # Directional update
-    dir_xt = (1 - ab_prev).sqrt() * pred_noise
-
-    # Add stochasticity
+    sigma = torch.zeros((), device=constants.device, dtype=x.dtype)
     if eta > 0:
-        shape = x.shape
-        img_noise = torch.randn(shape).to(constants.device)
-
         sigma = eta * ((1 - ab_prev) / (1 - ab)).sqrt() * (1 - ab / ab_prev).sqrt()
-        dir_xt += sigma * img_noise
 
-    return x0_pred + dir_xt
+    pred_noise_coeff = torch.clamp(1 - ab_prev - sigma.square(), min=0).sqrt()
+    x_prev = ab_prev.sqrt() * x0_pred + pred_noise_coeff * pred_noise
+
+    if eta > 0:
+        x_prev = x_prev + sigma * torch.randn_like(x)
+
+    return x_prev
 
 
 @torch.no_grad()
@@ -218,7 +223,7 @@ def denoise_ddpm(x, t_idx, eps):
 
 
 @torch.no_grad()
-def sample_ddpm(model, context):
+def sample_ddpm(model, context, verbose=True):
     """
     DDPM ancestral sampling (standard diffusion sampling, not deterministic like DDIM).
     Args:
@@ -234,10 +239,12 @@ def sample_ddpm(model, context):
     history = [x.squeeze().cpu().numpy()]
 
     for t_idx in reversed(range(1, constants.timesteps + 1)):
-        print(f"\rDenoising Step {t_idx}              ", end="")
+        if verbose:
+            print(f"\rDenoising Step {t_idx}              ", end="")
         t = torch.tensor([t_idx / constants.timesteps]).to(constants.device)
         eps = model(x, noise_level=t, context=context)  # predict noise e_(x_t,t)
         x = denoise_ddpm(x, t_idx, eps)
         history.append(x.squeeze().cpu().numpy())
-    print()
+    if verbose:
+        print()
     return np.stack(history, axis=0)

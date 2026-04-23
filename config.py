@@ -35,6 +35,7 @@ num_workers = 16
 # FITS file directories and rotation delta
 train_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation_GONG/train"
 test_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation_GONG/test"
+val_wsa_dir = "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation_GONG/val"
 
 # Scalers and spherical harmonic fix matrix
 scalers_path = "data/scalers_gong.json"
