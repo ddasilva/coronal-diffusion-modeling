@@ -4,7 +4,7 @@ import tqdm
 import torch
 
 from coronal_diffusion.dataset import CoronalFieldDatasetHDF
-from coronal_diffusion.constants import device
+from coronal_diffusion.constants import device, SCALE_INFLATION
 from coronal_diffusion.models import DiffusionModel
 import config
 
@@ -30,7 +30,7 @@ def main():
             total_unscaled_abs_value[i] += torch.abs(img).mean().item()
 
     unscaled_abs_value = total_unscaled_abs_value / counter
-
+    
     # Get the standard deviation after asinh scalings
     sum_sq = np.zeros_like(config.radii)
     total = np.zeros_like(config.radii)
@@ -47,7 +47,7 @@ def main():
 
         for i, r in enumerate(config.radii):
             img = make_img(model, coeffs, r)
-            img = torch.asinh(img / unscaled_abs_value[i])
+            img = torch.asinh(img / (SCALE_INFLATION * unscaled_abs_value[i]))
             sum_sq[i] += torch.sum(img**2).item()
             total[i] += img.shape[0] * img.shape[1]
 

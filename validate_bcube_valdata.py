@@ -20,8 +20,8 @@ def main():
     # Get command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-time", type=str, default="2010-01-01")
-    parser.add_argument("--end-time", type=str, default="2021-12-31")
-    parser.add_argument("--freq", type=str, default="1MS")
+    parser.add_argument("--end-time", type=str, default="2025-12-31")
+    parser.add_argument("--freq", type=str, default="3MS")
     parser.add_argument('--n-jobs', type=int, default=16)
     args = parser.parse_args()
 
@@ -74,7 +74,7 @@ def get_field_strength_valdata(date_range, val_times, val_file_paths, n_jobs):
         90,
     )
     lons = np.arange(-180, 180)
-    rs = config.radii
+    rs = np.array([1.025])
     Lats, Lons, Rs = np.meshgrid(lats, lons, rs, indexing="ij")
 
     Bcube = np.nan * np.zeros(

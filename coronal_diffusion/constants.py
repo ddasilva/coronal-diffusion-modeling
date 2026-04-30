@@ -1,7 +1,14 @@
 import torch
 
-N_CONTEXT = 6    # Number of context items
-N_REAL = 12      # Number of ADAPT realizations
+# Number of context items
+N_CONTEXT = 6
+
+# Number of ADAPT realizations
+N_REAL = 12      
+
+# Inflated the mean absolute value by this in sinh scaling
+SCALE_INFLATION = 1 
+
 
 # CUDA Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

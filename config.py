@@ -1,7 +1,7 @@
 import numpy as np
 
 # Name of the run, used for model checkpoints and tensorboard logs
-run_name = "experiment54-hemi"
+run_name = "experiment58-reset"
 
 # Training settings
 epochs = 500

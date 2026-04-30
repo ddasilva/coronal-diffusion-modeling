@@ -19,12 +19,12 @@ def main():
     parser.add_argument(
         "--weights",
         type=str,
-        default="checkpoints/experiment54-hemi_16.pth",
+        default="checkpoints/experiment54-hemi_9.pth",
     )
     parser.add_argument("--start-time", type=str, default="2010-01-01")
-    parser.add_argument("--end-time", type=str, default="2020-12-31")
-    parser.add_argument("--freq", type=str, default="1Y")
-    parser.add_argument('--nsamples', type=int, default=32)
+    parser.add_argument("--end-time", type=str, default="2025-12-31")
+    parser.add_argument("--freq", type=str, default="3MS")
+    parser.add_argument('--nsamples', type=int, default=12)
     args = parser.parse_args()
 
     # Load Hemispheric SS and Latitudinal data
@@ -38,7 +38,7 @@ def main():
     lats, lons, rs, Bcube = get_field_strength_samples(date_range, contexts, sampling_data, args.weights, args.nsamples)
 
     # Save the Bcube to an HDF5 file
-    out_file = "data/validate_bcube_samples.h5"
+    out_file = "data/validate_bcube_samples_1e3_wider.h5"
 
     hdf = h5py.File(out_file, "w")
     hdf['times_d2n'] = date2num(date_range)  # Save times as date numbers
@@ -84,7 +84,7 @@ def get_contexts(date_range, df_hemi_ss, df_hemi_lat):
 def get_field_strength_samples(date_range, contexts, sampling_data, weights_file, nsamples):
     lats = np.arange(-89, 90,)
     lons = np.arange(-180, 180)
-    rs = config.radii
+    rs = np.array([1.025])
     Lats, Lons, Rs = np.meshgrid(lats, lons, rs, indexing="ij")
     Bcube = np.nan * np.zeros((len(date_range), nsamples) + Lats.shape + (3,), dtype=np.float32)
 

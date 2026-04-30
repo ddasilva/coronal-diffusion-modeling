@@ -128,7 +128,7 @@ def get_samples(config, model):
     for context, subtitle in tasks:
         print(f"Sampling {subtitle}")
         return_value[subtitle] = sampler.sample(
-            sampling_data, model=model, context=context, method='ddim',
+            sampling_data, model=model, context=context, method='ddpm',
         )
 
     return return_value
@@ -356,7 +356,7 @@ def get_potential_images(model, coeffs, radii, scalers_dict):
 
         img_chan = model.isht(radial_scaling * coeffs).float()
         img_chan = (
-            torch.asinh(img_chan / scalers_dict["unscaled_abs"][i])
+            torch.asinh(img_chan / (scalers_dict["unscaled_abs"][i] * constants.SCALE_INFLATION))
             / scalers_dict["std"][i]
         )
         images[:, i, :, :] = img_chan

@@ -11,7 +11,7 @@ import torch.optim as optim
 
 
 from coronal_diffusion import constants, models
-from coronal_diffusion.constants import device, N_CONTEXT
+from coronal_diffusion.constants import device, N_CONTEXT, SCALE_INFLATION
 from coronal_diffusion.utils import flat_to_GH
 import config
 
@@ -90,7 +90,7 @@ def spherical_harm_fit_smaller(img, sampling_data, verbose=True, fitrad=config.r
 
     for i in range(fitrad):
         img_rescaled[i] = (
-            np.sinh(img[i] * sampling_data.std[i]) * sampling_data.unscaled_abs[i]
+            np.sinh(img[i] * sampling_data.std[i]) * (sampling_data.unscaled_abs[i] * SCALE_INFLATION)
         )
 
     # Build right hand side of Ax=b equation ------------------
