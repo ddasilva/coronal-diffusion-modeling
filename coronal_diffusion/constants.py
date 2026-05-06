@@ -3,17 +3,23 @@ import torch
 # Number of context items
 N_CONTEXT = 6
 
+# Context Scalers
+SUNSPOT_MEAN = 25.0
+SUNSPOT_STD = 25.0
+LATITUDE_MEAN = 12.0
+LATITUDE_STD = 5.0
+
 # Number of ADAPT realizations
-N_REAL = 12      
+N_REAL = 12
 
 # Inflated the mean absolute value by this in sinh scaling
-SCALE_INFLATION = 1 
+SCALE_INFLATION = 1
 
 
 # CUDA Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Diffusion settings and noise schedule parameters. 
+# Diffusion settings and noise schedule parameters.
 timesteps = 1000
 beta1 = 1e-4
 beta2 = 0.02

@@ -30,7 +30,7 @@ def main():
             total_unscaled_abs_value[i] += torch.abs(img).mean().item()
 
     unscaled_abs_value = total_unscaled_abs_value / counter
-    
+
     # Get the standard deviation after asinh scalings
     sum_sq = np.zeros_like(config.radii)
     total = np.zeros_like(config.radii)

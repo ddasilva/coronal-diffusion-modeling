@@ -22,7 +22,7 @@ def main():
     parser.add_argument("--start-time", type=str, default="2010-01-01")
     parser.add_argument("--end-time", type=str, default="2025-12-31")
     parser.add_argument("--freq", type=str, default="3MS")
-    parser.add_argument('--n-jobs', type=int, default=16)
+    parser.add_argument("--n-jobs", type=int, default=16)
     args = parser.parse_args()
 
     # Prepare date range
@@ -117,13 +117,13 @@ def parallel_target(i, j, file_path, lats, lons, rs):
     fits_file = fits.open(file_path)
     sph_data = fits_file[3].data.copy()
     fits_file.close()
-    
+
     G = sph_data[0, :, :].T
     H = sph_data[1, :, :].T
 
-    G = G[:config.fit_nmax+1, :config.fit_nmax+1]
-    H = H[:config.fit_nmax+1, :config.fit_nmax+1]
-    
+    G = G[: config.fit_nmax + 1, : config.fit_nmax + 1]
+    H = H[: config.fit_nmax + 1, : config.fit_nmax + 1]
+
     coeffs_array = np.array([G, H])
     coeffs = pyshtools.SHMagCoeffs.from_array(
         coeffs_array, normalization="schmidt", r0=1

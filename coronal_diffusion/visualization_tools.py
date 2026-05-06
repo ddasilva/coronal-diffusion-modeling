@@ -4,6 +4,7 @@ import pyshtools
 import plotly.graph_objects as go
 from ai import cs
 from matplotlib import pyplot as plt
+from pyshtools.backends.shtools import SHctor
 
 import config
 
@@ -12,11 +13,16 @@ OUTER_BOUNDARY = 2.50
 
 
 class SHInterpolator:
-    def __init__(self, G, H, normalization):
-        coeffs_array = np.array([G, H])
+    def __init__(self, real, imag):
+        complex_array = np.empty((2,) + real.shape, dtype=complex)
+        complex_array[0] = real
+        complex_array[1] = imag
+
+        real_coeffs = SHctor(complex_array)
+
         self.coeffs = pyshtools.SHMagCoeffs.from_array(
-            coeffs_array,
-            normalization=normalization,
+            real_coeffs,
+            normalization="ortho",
             r0=1,
         )
 
@@ -31,11 +37,11 @@ class SHInterpolator:
 
 class Visualizer:
 
-    def __init__(self, G=None, H=None, normalization="ortho"):
-        if G is not None and H is not None:
-            self.itp = SHInterpolator(G, H, normalization)
+    def __init__(self, real=None, imag=None):
+        if real is not None and imag is not None:
+            self.itp = SHInterpolator(real, imag)
         else:
-            raise ValueError("Need to specify G and H")
+            raise ValueError("Need to specify real and imag")
 
     def trace_field_line(
         self, start_point, step_size, max_steps=100_000_000, closed_only=False
@@ -64,7 +70,7 @@ class Visualizer:
             y = field_line[-1][1] + By * step_size
             z = field_line[-1][2] + Bz * step_size
             field_line.append((x, y, z))
-            
+
             r = np.sqrt(x**2 + y**2 + z**2)
             if r > OUTER_BOUNDARY:
                 color = "blue" if Br > 0 else "red"
@@ -107,7 +113,7 @@ class Visualizer:
         lon_values = np.linspace(-180, 180, grid_density, endpoint=False)
 
         open_fl = np.zeros((lat_values.size, lon_values.size))
-        
+
         for i, lat_deg in enumerate(lat_values):
             for j, lon_deg in enumerate(lon_values):
                 for dir in [-1, 1]:
@@ -119,10 +125,10 @@ class Visualizer:
                     )
 
                     last_r, last_lat, last_lon = cs.cart2sp(*field_line[-1])
-                    
+
                     if last_r > 2.49:
                         open_fl[i, j] = 1
-                        
+
         return lat_values, lon_values, open_fl
 
     def plot_coronal_holes(self, grid_density=10, r=1.01):
@@ -213,7 +219,7 @@ class Visualizer:
 
     def plot_current_sheet(self, r=2.5, ax=None):
         self.plot_magnetogram(r=r, sign=True, ax=ax)
-        
+
     def get_magnetogram(self, r):
         # Get magnetogram data
         lat_axis = np.arange(-89, 90, 1)

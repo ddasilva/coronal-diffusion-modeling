@@ -6,27 +6,18 @@ from tqdm import tqdm
 
 from coronal_diffusion.constants import device
 from coronal_diffusion.models import DiffusionModel
-from coronal_diffusion.utils import GH_to_flat
+from coronal_diffusion.utils import pack_coeffs
 
 import config
 from config import spharm_fit_mat_path, nlat, nlon, fit_nmax, radii
 
 
-def get_unscaled_abs():
-    # Apply Weighting
-    with open(config.scalers_path) as fh:
-        scalers_dict = json.load(fh)
-
-    return np.array(scalers_dict["unscaled_abs"])
-
-
 def main():
     model = DiffusionModel(nmax=fit_nmax)
     coeffs = torch.zeros((fit_nmax + 1, fit_nmax + 1), dtype=torch.complex64)
-    unscaled_abs = get_unscaled_abs()
 
     nrad = radii.size
-    ncol = GH_to_flat(coeffs.real, coeffs.imag).size - 1
+    ncol = pack_coeffs(coeffs.real, coeffs.imag).size - 1
     nrow = nlat * nlon * nrad
     A = np.zeros((nrow, ncol), dtype=np.float32)
     print("Matrix size:", (nrow, ncol))
@@ -34,13 +25,13 @@ def main():
     pbar = tqdm(total=ncol, desc="Filling matrix")
     col_counter = 0
 
-    for c in ["g", "h"]:
+    for c in ["real", "imag"]:
         for l in range(fit_nmax + 1):
             for m in range(fit_nmax + 1):
-                if ((l == 0 and m == 0) and c == "g") or (
-                    (l == 0 or m == 0) and c == "h"
+                if ((l == 0 and m == 0) and c == "real") or (
+                    (l == 0 or m == 0) and c == "imag"
                 ):
-                    # skip G[0, 0,] and H[:1, :1]
+                    # skip real[0, 0,] and imag[:1, :1]
                     continue
 
                 if m > l:
@@ -49,9 +40,9 @@ def main():
 
                 coeffs[:] = 0
 
-                if c == "g":
+                if c == "real":
                     coeffs[l, m] = 1
-                elif c == "h":
+                elif c == "imag":
                     coeffs[l, m] = 1j
                 else:
                     raise RuntimeError()

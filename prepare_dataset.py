@@ -15,7 +15,6 @@ from coronal_diffusion.constants import N_CONTEXT
 import config
 
 
-
 def main(root_dir, out_file):
     # Issue warning for the adventourous traveler
     print(
@@ -28,7 +27,7 @@ def main(root_dir, out_file):
 
     # Load hemispheric sunspot numbers
     df_hemi_ss = load_df_hemi_ss()
-    
+
     # Load magnetic field data
     files = glob.glob(f"{root_dir}/*.fits")
     files.sort()
@@ -43,11 +42,11 @@ def main(root_dir, out_file):
     for file in tqdm.tqdm(files):
         results = process_file(file, df_hemi_ss, df_hemi_lat)
 
-        for G, H, cur_context in results:
+        for real, imag, cur_context in results:
             items[counter] = np.concatenate(
                 [
-                    G[np.tril_indices(config.nmax + 1)],
-                    H[1:, 1:][np.tril_indices(config.nmax)],
+                    real[np.tril_indices(config.nmax + 1)],
+                    imag[1:, 1:][np.tril_indices(config.nmax)],
                 ]
             ).flatten()
             context[counter] = cur_context
@@ -78,10 +77,12 @@ def enumerate_variations(
     H = sph_data[1, :, :].T
 
     coeffs_array = np.array([G, H])
-    coeffs = pyshtools.SHMagCoeffs.from_array(
-        coeffs_array, normalization="schmidt", r0=1
+    coeffs = pyshtools.SHCoeffs.from_array(
+        coeffs_array,
+        normalization="schmidt",
+        csphase=-1,
     )
-    coeffs = coeffs.convert(normalization="ortho")
+    coeffs = coeffs.convert(normalization="ortho", kind="complex", csphase=-1)
 
     # Normal orientation
     context = [
@@ -92,7 +93,7 @@ def enumerate_variations(
         hemi_lead_pol_n,
         hemi_lead_pol_s,
     ]
-    yield coeffs.coeffs[0], coeffs.coeffs[1], context
+    yield coeffs.coeffs[0].real, coeffs.coeffs[0].imag, context
 
     # Top/Down flip
     flip_coeffs = coeffs.copy().rotate(alpha=0, beta=180, gamma=0, degrees=True)
@@ -104,7 +105,7 @@ def enumerate_variations(
         hemi_lead_pol_s,
         hemi_lead_pol_n,
     ]
-    yield flip_coeffs.coeffs[0], flip_coeffs.coeffs[1], context
+    yield flip_coeffs.coeffs[0].real, flip_coeffs.coeffs[0].imag, context
 
 
 def process_file(file, df_hemi_ss, df_hemi_lat):
@@ -140,7 +141,7 @@ def process_file(file, df_hemi_ss, df_hemi_lat):
     # Collect results
     results = []
 
-    for G, H, cur_context in enumerate_variations(
+    for real, imag, cur_context in enumerate_variations(
         file,
         hemi_ss_n,
         hemi_ss_s,
@@ -149,7 +150,7 @@ def process_file(file, df_hemi_ss, df_hemi_lat):
         hemi_lead_pol_n,
         hemi_lead_pol_s,
     ):
-        results.append((G, H, cur_context))
+        results.append((real, imag, cur_context))
 
     return results
 
@@ -196,8 +197,9 @@ def load_df_hemi_ss():
 
     return df_hemi_ss
 
+
 def load_df_hemi_lat():
-     return pd.read_csv("data/hemispheric_median_lats.csv", parse_dates=["times"])
+    return pd.read_csv("data/hemispheric_median_lats.csv", parse_dates=["times"])
 
 
 if __name__ == "__main__":

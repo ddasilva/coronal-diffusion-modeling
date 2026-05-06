@@ -7,7 +7,13 @@ import numpy as np
 import torch_harmonics as th
 import math
 
-from coronal_diffusion.constants import N_CONTEXT
+from coronal_diffusion.constants import (
+    N_CONTEXT,
+    SUNSPOT_MEAN,
+    SUNSPOT_STD,
+    LATITUDE_MEAN,
+    LATITUDE_STD
+)
 import config
 from config import nmax, nlon, nlat, radii
 
@@ -44,6 +50,7 @@ class DiffusionModel(nn.Module):
             lmax=nmax + 1,
             mmax=nmax + 1,
             norm="ortho",
+            csphase=False,
         )
 
         self.sht = th.RealSHT(
@@ -52,6 +59,7 @@ class DiffusionModel(nn.Module):
             lmax=nmax + 1,
             mmax=nmax + 1,
             norm="ortho",
+            csphase=False,
         )
 
         # Main denoising network
@@ -82,7 +90,6 @@ class DiffusionModel(nn.Module):
             Predicted noise [B, n_channels, H, W]
         """
         return self.unet(img_with_noise, noise_level, context)
-
 
 
 class SinusoidalPositionEmbeddings(nn.Module):
@@ -372,23 +379,32 @@ class MultispectralDiffusionUNet(nn.Module):
         """
         # Ensure context is 2D: (B, N_CONTEXT)
         if context.dim() == 1:
-            context = context.unsqueeze(-1)
+            context = context.unsqueeze(0)
+        elif context.dim() == 3:
+            context = context.view(context.size(0), -1)
+
+        # Normalize context features to roughly N(0, 1) to aid learning
+        context_scaled = context.clone()
+        # Sunspot numbers (idx 0, 1) have mean ~24.5, std ~21.5 (scaled around SUNSPOT_MEAN, SUNSPOT_STD)
+        context_scaled[:, 0:2] = (context[:, 0:2] - SUNSPOT_MEAN) / SUNSPOT_STD
+        # latitudes (idx 2, 3) have mean ~12.0, std ~4.5 (scaled around LATITUDE_MEAN, LATITUDE_STD)
+        context_scaled[:, 2:4] = (context[:, 2:4] - LATITUDE_MEAN) / LATITUDE_STD
+        # Polarities (idx 4, 5) are -1 or 1, leave as is
 
         # Get embeddings
         time_emb = self.time_embed(timesteps)
-        context_emb = self.context_embed(context)  # Now handles (B, N_CONTEXT) input
+        context_emb = self.context_embed(context_scaled)  # Now handles (B, N_CONTEXT) input
 
         # Ensure both embeddings are 2D
         if time_emb.dim() != 2:
             time_emb = time_emb.view(time_emb.size(0), -1)
         if context_emb.dim() != 2:
             context_emb = context_emb.view(context_emb.size(0), -1)
-                
+
         # Combine embeddings
         combined_emb = torch.cat([time_emb, context_emb], dim=-1)
         combined_emb = self.combined_mlp(combined_emb)
 
-   
         # Initial conv
         x = self.conv_in(x)
 

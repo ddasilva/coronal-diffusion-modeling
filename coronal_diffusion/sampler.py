@@ -12,7 +12,7 @@ import torch.optim as optim
 
 from coronal_diffusion import constants, models
 from coronal_diffusion.constants import device, N_CONTEXT, SCALE_INFLATION
-from coronal_diffusion.utils import flat_to_GH
+from coronal_diffusion.utils import unpack_coeffs
 import config
 
 
@@ -47,7 +47,7 @@ def sample(
     context=(50, 50, 10, 10, 1, -1),
     n=20,
     eta=0.1,
-    method='ddpm',
+    method="ddpm",
     return_history=False,
     verbose=True,
 ):
@@ -68,29 +68,31 @@ def sample(
     )
 
     # Call sample_ddim
-    if method == 'ddim':
+    if method == "ddim":
         imgs, history_pred_noise = sample_ddim(model, context, n, eta, verbose)
-    elif method == 'ddpm':
+    elif method == "ddpm":
         imgs = sample_ddpm(model, context, verbose)
-        
+
     # Perform sphericla harmonic fit of last image
-    G, H = spherical_harm_fit_smaller(imgs[-1], sampling_data, verbose)
+    real, imag = spherical_harm_fit_smaller(imgs[-1], sampling_data, verbose)
 
     # Branch based on return_history
     if return_history:
-        return imgs, (G, H)
+        return imgs, (real, imag)
     else:
-        return imgs[-1], (G, H)
+        return imgs[-1], (real, imag)
 
 
-def spherical_harm_fit_smaller(img, sampling_data, verbose=True, fitrad=config.radii.size):
+def spherical_harm_fit_smaller(
+    img, sampling_data, verbose=True, fitrad=config.radii.size
+):
     # Rescale image -------------------------------------
     img_rescaled = np.zeros(img.shape)
     nrad, nlat, nlon = img.shape
 
     for i in range(fitrad):
-        img_rescaled[i] = (
-            np.sinh(img[i] * sampling_data.std[i]) * (sampling_data.unscaled_abs[i] * SCALE_INFLATION)
+        img_rescaled[i] = np.sinh(img[i] * sampling_data.std[i]) * (
+            sampling_data.unscaled_abs[i] * SCALE_INFLATION
         )
 
     # Build right hand side of Ax=b equation ------------------
@@ -104,7 +106,7 @@ def spherical_harm_fit_smaller(img, sampling_data, verbose=True, fitrad=config.r
     # New approcah
     if verbose:
         print(f"Fitting spherical harmonics ({config.fit_nmax})")
-    
+
     X = np.zeros(sampling_data.A.shape[1] + 1)
     X[1:] = (
         torch.linalg.lstsq(sampling_data.A[: fitrad * nlat * nlon, :], b)[0]
@@ -112,9 +114,9 @@ def spherical_harm_fit_smaller(img, sampling_data, verbose=True, fitrad=config.r
         .numpy()
     )
 
-    G, H = flat_to_GH(X, nmax=config.fit_nmax)
+    real, imag = unpack_coeffs(X, nmax=config.fit_nmax)
 
-    return G, H
+    return real, imag
 
 
 @torch.no_grad()

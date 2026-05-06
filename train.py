@@ -29,7 +29,7 @@ def save_checkpoint(model, config, epoch):
 
 
 def get_dataloaders(config, shuffle=True):
-    train_dataset = CoronalFieldDatasetHDF(config.train_dataset_path)
+    train_dataset = CoronalFieldDatasetHDF(config.train_dataset_path, augment=True)
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=config.batch_size,
@@ -37,11 +37,11 @@ def get_dataloaders(config, shuffle=True):
         num_workers=config.num_workers,
     )
 
-    test_dataset = CoronalFieldDatasetHDF(config.test_dataset_path)
+    test_dataset = CoronalFieldDatasetHDF(config.test_dataset_path, augment=False)
     test_dataloader = DataLoader(
         test_dataset,
         batch_size=config.batch_size,
-        shuffle=shuffle,
+        shuffle=False,
         num_workers=config.num_workers,
     )
 
@@ -76,7 +76,7 @@ def unperturb_input(noisey_inputs, t, pred_noise):
 def do_img_plot(config, samples, epoch, writer):
     print("Plotting Magnetic Potential at photosphere (spherical harmonic image)...")
 
-    for subtitle, (img, (G, H)) in samples.items():
+    for subtitle, (img, (real, imag)) in samples.items():
         nrad = len(config.radii)
         ngrid = int(np.ceil(np.sqrt(nrad)))
         fig, axes = plt.subplots(ngrid, ngrid, sharex=True, sharey=True)
@@ -137,11 +137,11 @@ def get_samples(config, model):
 def do_br_plot(config, samples, epoch, writer):
     print("Plotting Br (magnetogram)...")
 
-    for subtitle, (img, (G, H)) in samples.items():
-        if not np.isfinite([G, H]).all():
+    for subtitle, (img, (real, imag)) in samples.items():
+        if not np.isfinite([real, imag]).all():
             continue
 
-        vis = vt.Visualizer(G, H)
+        vis = vt.Visualizer(real, imag)
         vis.plot_magnetogram()
 
         buff = BytesIO()
@@ -161,11 +161,11 @@ def do_br_plot(config, samples, epoch, writer):
 def do_field_line_plot(config, samples, epoch, writer):
     print("Plotting field lines...")
 
-    for subtitle, (img, (G, H)) in samples.items():
-        if not np.isfinite([G, H]).all():
+    for subtitle, (img, (real, imag)) in samples.items():
+        if not np.isfinite([real, imag]).all():
             continue
 
-        vis = vt.Visualizer(G, H)
+        vis = vt.Visualizer(real, imag)
         fig = vis.visualize_field_lines(r=1.1, grid_density=40)
 
         buff = BytesIO()
