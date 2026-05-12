@@ -109,8 +109,8 @@ class Visualizer:
         step_size = 0.01  # Step size
         max_steps = 100000  # Maximum number of steps to trace
 
-        lat_values = np.linspace(-89, 89, grid_density // 2, endpoint=False)
-        lon_values = np.linspace(-180, 180, grid_density, endpoint=False)
+        lat_values = np.linspace(-88, 88, grid_density // 2, endpoint=False)
+        lon_values = np.linspace(0, 360, grid_density, endpoint=False)
 
         open_fl = np.zeros((lat_values.size, lon_values.size))
 
@@ -133,8 +133,14 @@ class Visualizer:
 
     def plot_coronal_holes(self, grid_density=10, r=1.01):
         lat_values, lon_values, ch_map = self.get_coronal_holes(grid_density, r=r)
+        plt.figure(figsize=(10, 5))
         plt.pcolor(lon_values, lat_values, ch_map)
-        plt.colorbar().set_label("Coronal Hole")
+        plt.xlabel('Carrington Longitude')
+        plt.ylabel('Latitude')
+        plt.gca().set_aspect('equal')
+        cbar = plt.colorbar()
+        cbar.set_ticks([0, 1])
+        cbar.set_label("Coronal Hole")
 
     def visualize_field_lines(
         self, r=1.1, grid_density=10, closed_only=False, lim=OUTER_BOUNDARY
