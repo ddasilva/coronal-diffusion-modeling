@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pyshtools
 from tqdm import tqdm
+from pyshtools.backends.shtools import SHctor
 
 from coronal_diffusion import constants
 import config
@@ -22,7 +23,7 @@ def main():
     parser.add_argument("--start-time", type=str, default="2010-01-01")
     parser.add_argument("--end-time", type=str, default="2025-12-31")
     parser.add_argument("--freq", type=str, default="3MS")
-    parser.add_argument("--n-jobs", type=int, default=16)
+    parser.add_argument("--n-jobs", type=int, default=32)
     args = parser.parse_args()
 
     # Prepare date range
@@ -74,7 +75,7 @@ def get_field_strength_valdata(date_range, val_times, val_file_paths, n_jobs):
         90,
     )
     lons = np.arange(-180, 180)
-    rs = np.array([1.025])
+    rs = np.array([1.01])
     Lats, Lons, Rs = np.meshgrid(lats, lons, rs, indexing="ij")
 
     Bcube = np.nan * np.zeros(
@@ -120,20 +121,24 @@ def parallel_target(i, j, file_path, lats, lons, rs):
 
     G = sph_data[0, :, :].T
     H = sph_data[1, :, :].T
-
-    G = G[: config.fit_nmax + 1, : config.fit_nmax + 1]
-    H = H[: config.fit_nmax + 1, : config.fit_nmax + 1]
-
+    
     coeffs_array = np.array([G, H])
-    coeffs = pyshtools.SHMagCoeffs.from_array(
-        coeffs_array, normalization="schmidt", r0=1
+
+    # Now create SHMagCoeffs
+    mag_coeffs = pyshtools.SHMagCoeffs.from_array(
+        coeffs_array,
+        normalization="schmidt",
+        r0=1,
     )
 
-    result = coeffs.expand(
+    result = mag_coeffs.expand(
         r=Rs.flatten(), lat=Lats.flatten(), lon=Lons.flatten(), degrees=True
     )
 
+    result /= 4 * np.pi * np.sqrt(2)
+    
     Br, Btheta, Bphi = result.T
+    
 
     return i, j, Br, Btheta, Bphi
 
