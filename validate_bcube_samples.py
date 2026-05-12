@@ -7,6 +7,7 @@ from tqdm import tqdm
 import pyshtools
 import h5py
 import torch
+from pyshtools.backends.shtools import SHctor
 
 from coronal_diffusion import constants, models, sampler
 import config
@@ -19,12 +20,12 @@ def main():
     parser.add_argument(
         "--weights",
         type=str,
-        default="checkpoints/experiment58-reset_5.pth",
+        default="checkpoints/experiment59-cs-fix-and-context-scaling_16.pth",
     )
     parser.add_argument("--start-time", type=str, default="2010-01-01")
     parser.add_argument("--end-time", type=str, default="2025-12-31")
     parser.add_argument("--freq", type=str, default="3MS")
-    parser.add_argument("--nsamples", type=int, default=12)
+    parser.add_argument("--nsamples", type=int, default=1)
     args = parser.parse_args()
 
     # Load Hemispheric SS and Latitudinal data
@@ -40,7 +41,7 @@ def main():
     )
 
     # Save the Bcube to an HDF5 file
-    out_file = "data/validate_bcube_samples_1e3_wider.h5"
+    out_file = "data/validate_bcube_samples_exp59.h5"
 
     hdf = h5py.File(out_file, "w")
     hdf["times_d2n"] = date2num(date_range)  # Save times as date numbers
@@ -91,7 +92,7 @@ def get_field_strength_samples(
         90,
     )
     lons = np.arange(-180, 180)
-    rs = np.array([1.025])
+    rs = np.array([1.00])
     Lats, Lons, Rs = np.meshgrid(lats, lons, rs, indexing="ij")
     Bcube = np.nan * np.zeros(
         (len(date_range), nsamples) + Lats.shape + (3,), dtype=np.float32
@@ -111,7 +112,7 @@ def get_field_strength_samples(
 
     # Loop over iterable elements with progress bar
     for i, j, time, context in tqdm(iter_elems):
-        _, (G, H) = sampler.sample(
+        _, (real, imag) = sampler.sample(
             model=model,
             sampling_data=sampling_data,
             context=context,
@@ -119,9 +120,13 @@ def get_field_strength_samples(
             verbose=False,
         )
 
-        coeffs_array = np.array([G, H])
+        complex_array = np.zeros((2,) + real.shape, dtype=complex)
+        complex_array[0] = real + 1j * imag
+
+        real_coeffs = SHctor(complex_array)
+
         coeffs = pyshtools.SHMagCoeffs.from_array(
-            coeffs_array,
+            real_coeffs,
             normalization="ortho",
             r0=1,
         )

@@ -29,10 +29,10 @@ X_SIZE = 8281
 
 # Dataloader settings
 train_dataset_path = (
-    "/data/dedasilv/coronal-diffusion-modeling/training_dataset_gong_hemi_imag.h5"
+    "/home/dedasilv/training_dataset_gong_hemi_imag.h5"
 )
 test_dataset_path = (
-    "/data/dedasilv/coronal-diffusion-modeling/test_dataset_gong_hemi_imag.h5"
+    "/home/dedasilv/test_dataset_gong_hemi_imag.h5"
 )
 num_workers = 16
 

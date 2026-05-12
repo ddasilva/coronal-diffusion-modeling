@@ -14,7 +14,7 @@ OUTER_BOUNDARY = 2.50
 
 class SHInterpolator:
     def __init__(self, real, imag):
-        complex_array = np.empty((2,) + real.shape, dtype=complex)
+        complex_array = np.empty((2,) + real.shape, dtype=float)
         complex_array[0] = real
         complex_array[1] = imag
 
