@@ -18,7 +18,7 @@ import config
 def main(root_dir, out_file):
     # Issue warning for the adventourous traveler
     print(
-        "Warning: using hardcoded leading polarity, valid for training data between "
+        "Warning: using hardcoded trailing polarity, valid for training data between "
         "2010-2020 only."
     )
 
@@ -66,8 +66,8 @@ def enumerate_variations(
     hemi_ss_s,
     hemi_med_lat_n,
     hemi_med_lat_s,
-    hemi_lead_pol_n,
-    hemi_lead_pol_s,
+    hemi_trail_pol_n,
+    hemi_trail_pol_s,
 ):
     fits_file = fits.open(file_path)
     sph_data = fits_file[3].data.copy()
@@ -90,8 +90,8 @@ def enumerate_variations(
         hemi_ss_s,
         hemi_med_lat_n,
         hemi_med_lat_s,
-        hemi_lead_pol_n,
-        hemi_lead_pol_s,
+        hemi_trail_pol_n,
+        hemi_trail_pol_s,
     ]
     yield coeffs.coeffs[0].real, coeffs.coeffs[0].imag, context
 
@@ -102,8 +102,8 @@ def enumerate_variations(
         hemi_ss_n,
         hemi_med_lat_s,
         hemi_med_lat_n,
-        hemi_lead_pol_s,
-        hemi_lead_pol_n,
+        hemi_trail_pol_s,
+        hemi_trail_pol_n,
     ]
     yield flip_coeffs.coeffs[0].real, flip_coeffs.coeffs[0].imag, context
 
@@ -132,11 +132,11 @@ def process_file(file, df_hemi_ss, df_hemi_lat):
     hemi_med_lat_n = abs(df_hemi_lat.iloc[i]["MedianLatNorth_Smoothed"])
     hemi_med_lat_s = abs(df_hemi_lat.iloc[i]["MedianLatSouth_Smoothed"])
 
-    # Hemispheric leading polarity (hardcoded for now)
+    # Hemispheric trailing polarity (hardcoded for now)
     # these will also be flipped in the dataloader if harmonics are inverted from RNG
     assert 2010 <= time.year <= 2020
-    hemi_lead_pol_n = 1
-    hemi_lead_pol_s = -1
+    hemi_trail_pol_n = 1
+    hemi_trail_pol_s = -1
 
     # Collect results
     results = []
@@ -147,8 +147,8 @@ def process_file(file, df_hemi_ss, df_hemi_lat):
         hemi_ss_s,
         hemi_med_lat_n,
         hemi_med_lat_s,
-        hemi_lead_pol_n,
-        hemi_lead_pol_s,
+        hemi_trail_pol_n,
+        hemi_trail_pol_s,
     ):
         results.append((real, imag, cur_context))
 
