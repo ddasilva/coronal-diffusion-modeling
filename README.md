@@ -5,7 +5,7 @@ This repository holds code to train and sample a generative diffusion model of t
 
 ## Pretrained weights
 
-Pretrained weights are available on hugging face at [https://huggingface.co/ddasilva/coronal-diffusion-modeling](https://huggingface.co/ddasilva/coronal-diffusion-modeling).
+Pretrained weights, processed training data, scalers, and sampling support data are available on hugging face at [https://huggingface.co/ddasilva/coronal-diffusion-modeling](https://huggingface.co/ddasilva/coronal-diffusion-modeling).
 
 ## Running the Code
 
