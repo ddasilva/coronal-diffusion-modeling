@@ -37,7 +37,7 @@ def main():
     )
 
     # Save the Bcube to an HDF5 file
-    out_file = "data/validate_bcube_valdata.h5"
+    out_file = "data/validation/bcube_valdata.h5"
 
     hdf = h5py.File(out_file, "w")
     hdf["times_d2n"] = date2num(date_range)  # Save times as date numbers

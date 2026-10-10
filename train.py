@@ -139,6 +139,7 @@ def do_br_plot(config, samples, epoch, writer):
 
     for subtitle, (img, (real, imag)) in samples.items():
         if not np.isfinite([real, imag]).all():
+            print('Skipping br plot-- isfinite check fails')
             continue
 
         vis = vt.Visualizer(real, imag)
@@ -163,6 +164,7 @@ def do_field_line_plot(config, samples, epoch, writer):
 
     for subtitle, (img, (real, imag)) in samples.items():
         if not np.isfinite([real, imag]).all():
+            print('Skipping field line plot-- isfinite check failed')
             continue
 
         vis = vt.Visualizer(real, imag)

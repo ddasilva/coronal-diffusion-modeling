@@ -1,12 +1,21 @@
 import json
+import sys
+from pathlib import Path
+
 import numpy as np
 import pyshtools
 import plotly.graph_objects as go
+from joblib import Parallel, delayed
 from ai import cs
 from matplotlib import pyplot as plt
+from scipy.integrate import RK45
 from pyshtools.backends.shtools import SHctor
 
 import config
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 INNER_BOUNDARY = 1.00
 OUTER_BOUNDARY = 2.50
@@ -109,7 +118,7 @@ class Visualizer:
         step_size = 0.01  # Step size
         max_steps = 100000  # Maximum number of steps to trace
 
-        lat_values = np.linspace(-88, 88, grid_density // 2, endpoint=False)
+        lat_values = np.linspace(-89, 89, grid_density // 2, endpoint=False)
         lon_values = np.linspace(0, 360, grid_density, endpoint=False)
 
         open_fl = np.zeros((lat_values.size, lon_values.size))
@@ -245,6 +254,153 @@ class Visualizer:
         return result, lat, lon
 
 
+class VisualizerRK45(Visualizer):
+
+    def __init__(self, real=None, imag=None, n_jobs=-1):
+        super().__init__(real=real, imag=imag)
+        self.real = np.array(real, copy=True)
+        self.imag = np.array(imag, copy=True)
+        self.n_jobs = n_jobs
+
+    def trace_field_line(
+        self, start_point, step_size, max_steps=100_000_000, closed_only=False
+    ):
+        del closed_only
+
+        start_point = np.asarray(start_point, dtype=float)
+        field_line = [tuple(start_point)]
+        color = "black"
+
+        step_size = float(step_size)
+        if step_size == 0:
+            return field_line, color
+
+        direction = 1.0 if step_size > 0 else -1.0
+        max_step = abs(step_size)
+        solver = RK45(
+            self._field_line_rhs(direction),
+            0.0,
+            start_point,
+            max_steps * max_step,
+            max_step=max_step,
+        )
+
+        for _ in range(max_steps):
+            r, lat, lon = cs.cart2sp(*solver.y)
+
+            try:
+                Br, _, _ = self.itp.interpolate(r, lat, lon)
+            except ValueError:
+                break
+
+            try:
+                solver.step()
+            except ValueError:
+                break
+
+            field_line.append(tuple(solver.y))
+
+            r = np.linalg.norm(solver.y)
+            if r > OUTER_BOUNDARY:
+                color = "blue" if Br > 0 else "red"
+                break
+            if r < INNER_BOUNDARY:
+                break
+
+            if solver.status != "running":
+                break
+
+        return field_line, color
+
+    def _field_line_rhs(self, direction):
+        def rhs(_, point):
+            r, lat, lon = cs.cart2sp(*point)
+
+            Br, Btheta, Bphi = self.itp.interpolate(r, lat, lon)
+            Bx, By, Bz = spherical_to_cartesian_vector(Br, Btheta, Bphi, lat, lon)
+            Bnorm = np.sqrt(Bx**2 + By**2 + Bz**2)
+
+            if not np.isfinite(Bnorm) or Bnorm == 0:
+                return np.zeros(3)
+
+            return direction * np.array([Bx, By, Bz]) / Bnorm
+
+        return rhs
+
+    def _get_field_lines_on_grid(self, r, grid_density, closed_only):
+        step_size = 0.01
+        max_steps = 1000
+
+        lat_values = np.linspace(-89.9, 89.9, grid_density // 2, endpoint=False)
+        lon_values = np.linspace(0, 360, grid_density, endpoint=False)
+
+        seeds = []
+        for lat_deg in lat_values:
+            for lon_deg in lon_values:
+                for direction in (-1, 1):
+                    start_point = cs.sp2cart(
+                        r, np.deg2rad(lat_deg), np.deg2rad(lon_deg)
+                    )
+                    seeds.append((start_point, direction * step_size, max_steps, closed_only))
+
+        results = Parallel(n_jobs=self.n_jobs, backend="multiprocessing")(
+            delayed(_trace_field_line_rk45)(
+                start_point,
+                step_size,
+                max_steps,
+                self.real,
+                self.imag,
+                closed_only,
+            )
+            for start_point, step_size, max_steps, closed_only in seeds
+        )
+
+        field_lines = []
+        colors = []
+        for field_line, color in results:
+            if field_line is not None:
+                field_lines.append(np.array(field_line))
+                colors.append(color)
+
+        return field_lines, colors
+
+    def get_coronal_holes(self, grid_density, r=1.1):
+        step_size = 0.01
+        max_steps = 100000
+
+        lat_values = np.linspace(-88, 88, grid_density // 2, endpoint=False)
+        lon_values = np.linspace(0, 360, grid_density, endpoint=False)
+
+        seeds = []
+        for i, lat_deg in enumerate(lat_values):
+            for j, lon_deg in enumerate(lon_values):
+                for direction in (-1, 1):
+                    start_point = cs.sp2cart(
+                        r, np.deg2rad(lat_deg), np.deg2rad(lon_deg)
+                    )
+                    seeds.append((i, j, start_point, direction * step_size, max_steps))
+
+        results = Parallel(n_jobs=self.n_jobs, backend="multiprocessing")(
+            delayed(_trace_field_line_rk45)(
+                start_point,
+                step_size,
+                max_steps,
+                self.real,
+                self.imag,
+                True,
+            )
+            for _, _, start_point, step_size, max_steps in seeds
+        )
+
+        open_fl = np.zeros((lat_values.size, lon_values.size))
+        for (i, j, _, _, _), (field_line, _) in zip(seeds, results):
+            last_r, _, _ = cs.cart2sp(*field_line[-1])
+            if last_r > 2.49:
+                open_fl[i, j] = 1
+
+        return lat_values, lon_values, open_fl
+
+
 def spherical_to_cartesian_vector(Br, Btheta, Bphi, lat, lon):
     colat = np.pi / 2 - lat
 
@@ -258,3 +414,72 @@ def spherical_to_cartesian_vector(Br, Btheta, Bphi, lat, lon):
     Bz = Br * cosθ - Btheta * sinθ
 
     return Bx, By, Bz
+
+
+def _trace_field_line_rk45(
+    start_point, step_size, max_steps, real, imag, closed_only=False
+):
+    del closed_only
+
+    itp = SHInterpolator(real, imag)
+
+    start_point = np.asarray(start_point, dtype=float)
+    field_line = [tuple(start_point)]
+    color = "black"
+
+    step_size = float(step_size)
+    if step_size == 0:
+        return field_line, color
+
+    direction = 1.0 if step_size > 0 else -1.0
+    max_step = abs(step_size)
+    solver = RK45(
+        _field_line_rhs_rk45(itp, direction),
+        0.0,
+        start_point,
+        max_steps * max_step,
+        max_step=max_step,
+    )
+
+    for _ in range(max_steps):
+        r, lat, lon = cs.cart2sp(*solver.y)
+
+        try:
+            Br, _, _ = itp.interpolate(r, lat, lon)
+        except ValueError:
+            break
+
+        try:
+            solver.step()
+        except ValueError:
+            break
+
+        field_line.append(tuple(solver.y))
+
+        r = np.linalg.norm(solver.y)
+        if r > OUTER_BOUNDARY:
+            color = "blue" if Br > 0 else "red"
+            break
+        if r < INNER_BOUNDARY:
+            break
+
+        if solver.status != "running":
+            break
+
+    return field_line, color
+
+
+def _field_line_rhs_rk45(itp, direction):
+    def rhs(_, point):
+        r, lat, lon = cs.cart2sp(*point)
+
+        Br, Btheta, Bphi = itp.interpolate(r, lat, lon)
+        Bx, By, Bz = spherical_to_cartesian_vector(Br, Btheta, Bphi, lat, lon)
+        Bnorm = np.sqrt(Bx**2 + By**2 + Bz**2)
+
+        if not np.isfinite(Bnorm) or Bnorm == 0:
+            return np.zeros(3)
+
+        return direction * np.array([Bx, By, Bz]) / Bnorm
+
+    return rhs
