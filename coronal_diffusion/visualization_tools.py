@@ -29,6 +29,8 @@ class SHInterpolator:
 
         real_coeffs = SHctor(complex_array)
 
+        # Default csphase (+1, no Condon-Shortley phase) matches the model's
+        # transforms (csphase=False) and the physical WSA field.
         self.coeffs = pyshtools.SHMagCoeffs.from_array(
             real_coeffs,
             normalization="ortho",

@@ -135,7 +135,7 @@ def parallel_target(i, j, file_path, lats, lons, rs):
         r=Rs.flatten(), lat=Lats.flatten(), lon=Lons.flatten(), degrees=True
     )
 
-    result /= 4 * np.pi * np.sqrt(2)
+    #result /= 4 * np.pi * np.sqrt(2)
     
     Br, Btheta, Bphi = result.T
     

@@ -80,9 +80,9 @@ def enumerate_variations(
     coeffs = pyshtools.SHCoeffs.from_array(
         coeffs_array,
         normalization="schmidt",
-        csphase=-1,
+        csphase=1,
     )
-    coeffs = coeffs.convert(normalization="ortho", kind="complex", csphase=-1)
+    coeffs = coeffs.convert(normalization="ortho", kind="complex", csphase=1)
 
     # Normal orientation
     context = [

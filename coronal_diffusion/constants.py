@@ -15,7 +15,6 @@ N_REAL = 12
 # Inflated the mean absolute value by this in sinh scaling
 SCALE_INFLATION = 1
 
-
 # CUDA Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 import torch
 
@@ -40,3 +42,10 @@ def unpack_coeffs(flat, nmax=config.nmax):
     imag[1:, 1:] = imagtemp
 
     return real, imag
+
+
+def set_seeds(seed):
+    torch.use_deterministic_algorithms(True)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)

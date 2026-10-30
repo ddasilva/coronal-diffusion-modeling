@@ -2,6 +2,7 @@ import argparse
 from datetime import datetime
 import os
 from pathlib import Path
+import random
 
 from astropy.io import fits
 from matplotlib.dates import date2num
@@ -22,7 +23,7 @@ def main():
     parser.add_argument("--start-time", type=str, default="2010-01-01")
     parser.add_argument("--end-time", type=str, default="2025-12-31")
     parser.add_argument("--freq", type=str, default="7D")
-    parser.add_argument("--n-jobs", type=int, default=32)
+    parser.add_argument("--n-jobs", type=int, default=16)
     parser.add_argument("--radius", type=float, default=2.5)
     parser.add_argument("--lat-step", type=float, default=1.0)
     parser.add_argument("--lon-step", type=float, default=1.0)
@@ -43,16 +44,16 @@ def main():
         raise ValueError("Latitude and longitude grids must contain at least one point.")
 
     date_range = pd.date_range(args.start_time, args.end_time, freq=args.freq)
-    val_times, val_file_paths = get_r000_val_file_paths()
-    val_times_d2n = date2num(val_times)
+    train_times, train_file_paths = get_r000_train_file_paths()
+    train_times_d2n = date2num(train_times)
 
     parallel = Parallel(n_jobs=args.n_jobs)
     tasks = [
         delayed(write_angle_file)(
             time=time,
-            val_times=val_times,
-            val_times_d2n=val_times_d2n,
-            val_file_paths=val_file_paths,
+            train_times=train_times,
+            train_times_d2n=train_times_d2n,
+            train_file_paths=train_file_paths,
             lats=lats,
             lons=lons,
             radius=args.radius,
@@ -67,19 +68,19 @@ def main():
     print(f"Wrote {len(date_range)} files to {out_dir}")
 
 
-def get_r000_val_file_paths():
-    val_file_paths = os.listdir(config.val_wsa_dir)
-    val_file_paths = [f for f in val_file_paths if f.endswith(".fits") and "R000" in f]
-    val_file_paths.sort()
+def get_r000_train_file_paths():
+    train_file_paths = os.listdir(config.train_wsa_dir)
+    train_file_paths = [f for f in train_file_paths if f.endswith(".fits") and "R000" in f]
+    train_file_paths.sort()
 
     times = []
-    for file_path in val_file_paths:
+    for file_path in train_file_paths:
         time = datetime.strptime(
             os.path.basename(file_path).split("R")[0], "wsa_%Y%m%d%H%M"
         )
         times.append(time)
 
-    return np.array(times), np.array(val_file_paths)
+    return np.array(times), np.array(train_file_paths)
 
 
 def read_ortho_harmonics(file_path):
@@ -88,6 +89,10 @@ def read_ortho_harmonics(file_path):
 
     g_coeffs = sph_data[0, :, :].T
     h_coeffs = sph_data[1, :, :].T
+
+    if random.random() < 0.5:
+        g_coeffs = -g_coeffs
+        h_coeffs = -h_coeffs
 
     coeffs = pyshtools.SHMagCoeffs.from_array(
         np.array([g_coeffs, h_coeffs]),
@@ -101,10 +106,10 @@ def read_ortho_harmonics(file_path):
 
 
 def write_angle_file(
-    time, val_times, val_times_d2n, val_file_paths, lats, lons, radius, out_dir
+    time, train_times, train_times_d2n, train_file_paths, lats, lons, radius, out_dir
 ):
-    idx = np.argmin(np.abs(val_times_d2n - date2num(time)))
-    base_file = os.path.join(config.val_wsa_dir, val_file_paths[idx])
+    idx = np.argmin(np.abs(train_times_d2n - date2num(time)))
+    base_file = os.path.join(config.train_wsa_dir, train_file_paths[idx])
 
     real_file_path = base_file
     real, imag = read_ortho_harmonics(real_file_path)
@@ -120,7 +125,7 @@ def write_angle_file(
         hdf["lons"] = lons
         hdf["radius"] = np.array([radius], dtype=np.float32)
         hdf["angles_deg"] = angles_deg
-        hdf.attrs["matched_wsa_time_iso"] = val_times[idx].isoformat()
+        hdf.attrs["matched_wsa_time_iso"] = train_times[idx].isoformat()
         hdf.attrs["source_r000_file"] = str(base_file)
         hdf.attrs["angle_definition"] = (
             "Angle in degrees between the magnetic-field vector and the outward "

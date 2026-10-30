@@ -15,7 +15,7 @@ def main():
     parser.add_argument("--start-time", type=str, default="2010-01-01")
     parser.add_argument("--end-time", type=str, default="2025-12-31")
     parser.add_argument("--freq", type=str, default="7D")
-    parser.add_argument("--n-jobs", type=int, default=32)
+    parser.add_argument("--n-jobs", type=int, default=16)
     parser.add_argument("--radius", type=float, default=1.0)
     parser.add_argument("--lat-step", type=float, default=0.5)
     parser.add_argument("--lon-step", type=float, default=1.0)
@@ -150,8 +150,9 @@ def compute_peak_lat_grid(real, imag, lats, lons, radius):
     """
     from pyshtools.backends.shtools import SHctor
 
-    complex_array = np.zeros((2,) + real.shape, dtype=complex)
-    complex_array[0] = real + 1j * imag
+    complex_array = np.empty((2,) + real.shape, dtype=np.float64)
+    complex_array[0] = real
+    complex_array[1] = imag
 
     real_coeffs = SHctor(complex_array)
     coeffs = pyshtools.SHMagCoeffs.from_array(
