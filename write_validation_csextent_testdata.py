@@ -128,27 +128,9 @@ def compute_br_grid(file_path, lats, lons, radius):
     H = sph_data[1, :, :].T
 
     coeffs_array = np.array([G, H])
-    coeffs = pyshtools.SHCoeffs.from_array(
+    coeffs = pyshtools.SHMagCoeffs.from_array(
         coeffs_array,
         normalization="schmidt",
-        csphase=-1,
-    )
-    coeffs = coeffs.convert(normalization="ortho", kind="complex", csphase=-1)
-
-    from pyshtools.backends.shtools import SHctor
-
-    # `real`/`imag` are the ortho-normalized complex coefficients stored by
-    # prepare_dataset.py. Stack them as a float array as SHctor expects, then
-    # convert to real coefficients (same convention as
-    # write_validation_bcube_samples.py).
-    complex_array = np.empty((2,) + coeffs.coeffs[0].real.shape, dtype=np.float64)
-    complex_array[0] = coeffs.coeffs[0].real
-    complex_array[1] = coeffs.coeffs[0].imag
-
-    real_coeffs = SHctor(complex_array)
-    coeffs = pyshtools.SHMagCoeffs.from_array(
-        real_coeffs,
-        normalization="ortho",
         r0=1,
     )
 

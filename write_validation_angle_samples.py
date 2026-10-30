@@ -9,6 +9,7 @@ from tqdm import tqdm
 import pyshtools
 from pyshtools.backends.shtools import SHctor
 
+from coronal_diffusion import utils
 
 def main():
     parser = argparse.ArgumentParser()
@@ -97,10 +98,7 @@ def ensure_sample_axis(real, imag, sample_file):
 
 
 def compute_angle_grid(real, imag, lats, lons, radius):
-    complex_array = np.zeros((2,) + real.shape, dtype=complex)
-    complex_array[0] = real + 1j * imag
-
-    real_coeffs = SHctor(complex_array)
+    real_coeffs = utils.complex_to_real(real, imag)
     coeffs = pyshtools.SHMagCoeffs.from_array(
         real_coeffs,
         normalization="ortho",

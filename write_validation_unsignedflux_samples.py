@@ -1,8 +1,6 @@
 import argparse
 from pathlib import Path
 
-from coronal_diffusion.constants import B_BIAS_CORR
-
 from joblib import Parallel, delayed
 from joblib_progress import joblib_progress
 from matplotlib.dates import date2num
@@ -10,6 +8,8 @@ import h5py
 import numpy as np
 import pandas as pd
 import pyshtools
+
+from coronal_diffusion import utils
 
 
 def main():
@@ -238,19 +238,8 @@ def ensure_sample_axis(real, imag, sample_file):
 
 
 def compute_unsigned_flux(real, imag, lats, lons, rs, solid_angle):
-    # Imported here (not at module level) so cloudpickle never has to serialize
-    # the Fortran-backed function when shipping this function to joblib workers.
-    from pyshtools.backends.shtools import SHctor
-
-    # `real`/`imag` are the ortho-normalized complex coefficients stored by
-    # prepare_dataset.py. Same conversion as write_validation_bcube_samples.py.
-    complex_array = np.empty((2,) + real.shape, dtype=np.float64)
-    complex_array[0] = real
-    complex_array[1] = imag
-
-    real_coeffs = SHctor(complex_array)
     coeffs = pyshtools.SHMagCoeffs.from_array(
-        real_coeffs,
+        utils.complex_to_real(real, imag),
         normalization="ortho",
         r0=1,
     )

@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 import pyshtools
 
+from coronal_diffusion import utils
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -209,21 +211,8 @@ def ensure_sample_axis(real, imag, sample_file):
 
 
 def compute_br_grid(real, imag, lats, lons, radius):
-    # Imported here (not at module level) so cloudpickle never has to serialize
-    # the Fortran-backed function when shipping this function to joblib workers.
-    from pyshtools.backends.shtools import SHctor
-
-    # `real`/`imag` are the ortho-normalized complex coefficients stored by
-    # prepare_dataset.py. Stack them as a float array as SHctor expects, then
-    # convert to real coefficients (same convention as
-    # write_validation_bcube_samples.py).
-    complex_array = np.empty((2,) + real.shape, dtype=np.float64)
-    complex_array[0] = real
-    complex_array[1] = imag
-
-    real_coeffs = SHctor(complex_array)
     coeffs = pyshtools.SHMagCoeffs.from_array(
-        real_coeffs,
+        utils.complex_to_real(real, imag),
         normalization="ortho",
         r0=1,
     )

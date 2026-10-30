@@ -10,6 +10,9 @@ import pandas as pd
 import pyshtools
 
 
+from coronal_diffusion import utils
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-time", type=str, default="2010-01-01")
@@ -105,16 +108,8 @@ def write_angle_file(time, truncated_dir, lats, lons, radius, out_dir):
 
 def compute_angle_grid(real, imag, lats, lons, radius):
     # Imported here because SHctor is Fortran-backed and cannot be pickled by joblib.
-    from pyshtools.backends.shtools import SHctor
-
-    # Float stack [real, imag] -> SHctor -> real pyshtools coefficients, default
-    # csphase, ortho normalization (matches the model's transforms).
-    stack = np.empty((2,) + real.shape, dtype=np.float64)
-    stack[0] = real
-    stack[1] = imag
-
     coeffs = pyshtools.SHMagCoeffs.from_array(
-        SHctor(stack),
+        utils.complex_to_real(real, imag),
         normalization="ortho",
         r0=1,
     )

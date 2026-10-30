@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 import pyshtools
 from tqdm import tqdm
-from pyshtools.backends.shtools import SHctor
 
 from coronal_diffusion import constants
 import config
@@ -75,7 +74,7 @@ def get_field_strength_valdata(date_range, val_times, val_file_paths, n_jobs):
         90,
     )
     lons = np.arange(-180, 180)
-    rs = np.array([1.01])
+    rs = np.array([1.0, 1.5, 2.0, 2.5])
     Lats, Lons, Rs = np.meshgrid(lats, lons, rs, indexing="ij")
 
     Bcube = np.nan * np.zeros(

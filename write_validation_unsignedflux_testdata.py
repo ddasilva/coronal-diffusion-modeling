@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pyshtools
 
-from coronal_diffusion import constants
+from coronal_diffusion import constants, utils
 from write_validation_unsignedflux_samples import (
     build_flux_grid,
     integrate_unsigned_flux,
@@ -122,32 +122,15 @@ def process_item(i, j, file_path, lats, lons, rs, solid_angle):
 
 
 def compute_unsigned_flux(file_path, lats, lons, rs, solid_angle):
-    from pyshtools.backends.shtools import SHctor
-
     with fits.open(file_path) as fits_file:
         sph_data = fits_file[3].data.copy()
 
     G = sph_data[0, :, :].T
     H = sph_data[1, :, :].T
 
-    coeffs = pyshtools.SHCoeffs.from_array(
+    coeffs = pyshtools.SHMagCoeffs.from_array(
         np.array([G, H]),
         normalization="schmidt",
-        csphase=-1,
-    )
-    coeffs = coeffs.convert(normalization="ortho", kind="complex", csphase=-1)
-    
-    real = coeffs.coeffs[0].real
-    imag = coeffs.coeffs[0].imag
-
-    complex_array = np.empty((2,) + real.shape, dtype=np.float64)
-    complex_array[0] = real
-    complex_array[1] = imag
-
-    real_coeffs = SHctor(complex_array)
-    coeffs = pyshtools.SHMagCoeffs.from_array(
-        real_coeffs,
-        normalization="ortho",
         r0=1,
     )
 

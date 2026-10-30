@@ -9,8 +9,8 @@ from joblib import Parallel, delayed
 from ai import cs
 from matplotlib import pyplot as plt
 from scipy.integrate import RK45
-from pyshtools.backends.shtools import SHctor
 
+from coronal_diffusion import utils
 import config
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -23,13 +23,8 @@ OUTER_BOUNDARY = 2.50
 
 class SHInterpolator:
     def __init__(self, real, imag):
-        complex_array = np.empty((2,) + real.shape, dtype=float)
-        complex_array[0] = real
-        complex_array[1] = imag
-
-        real_coeffs = SHctor(complex_array)
-
-        # Default csphase (+1, no Condon-Shortley phase) matches the model's
+        real_coeffs = utils.complex_to_real(real, imag)
+        
         # transforms (csphase=False) and the physical WSA field.
         self.coeffs = pyshtools.SHMagCoeffs.from_array(
             real_coeffs,

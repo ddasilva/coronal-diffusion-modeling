@@ -77,7 +77,7 @@ def main():
     # (n_times, n_realizations, n_radii), with a single realization here.
     flux = np.full((len(date_range), 1, rs.size), np.nan, dtype=np.float64)
     matched_times = np.full(len(date_range), "", dtype=object)
-2
+
     for index, flux_i, matched_wsa_time in valid_results:
         flux[index, 0] = flux_i
         matched_times[index] = matched_wsa_time

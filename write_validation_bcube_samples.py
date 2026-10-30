@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import pyshtools
 
+from coronal_diffusion import utils
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -30,7 +32,7 @@ def main():
     parser.add_argument(
         "--out-file",
         type=str,
-        default="data/validation/bcube_samples_exp59.h5",
+        default="data/validation/bcube_samples.h5",
     )
     args = parser.parse_args()
 
@@ -40,7 +42,7 @@ def main():
 
     lats = np.arange(-89, 90)
     lons = np.arange(-180, 180)
-    rs = np.array([1.00], dtype=np.float64)
+    rs = np.array([1.00, 1.5, 2.0, 2.5], dtype=np.float64)
 
     if lats.size == 0 or lons.size == 0 or rs.size == 0:
         raise ValueError("Latitude, longitude, and radius grids must be non-empty.")
@@ -219,21 +221,8 @@ def ensure_sample_axis(real, imag, sample_file):
 def expand_field_components(real, imag, rs_flat, lats_flat, lons_flat, output_shape):
     # Imported here (not at module level) so cloudpickle never has to serialize
     # the Fortran-backed function when shipping this function to joblib workers.
-    from pyshtools.backends.shtools import SHctor
-
-    # `real`/`imag` are the ortho-normalized complex coefficients stored by
-    # prepare_dataset.py. Stack them as a *float* array (not complex) as SHctor
-    # expects, then convert to real coefficients. Use the default csphase (+1,
-    # no Condon-Shortley phase): that matches the model's transforms
-    # (csphase=False) and the physical WSA field, and makes this expansion
-    # identical (scale 1) to write_validation_bcube_testdata.py.
-    complex_array = np.empty((2,) + real.shape, dtype=np.float64)
-    complex_array[0] = real
-    complex_array[1] = imag
-
-    real_coeffs = SHctor(complex_array)
     coeffs = pyshtools.SHMagCoeffs.from_array(
-        real_coeffs,
+        utils.complex_to_real(real, imag),
         normalization="ortho",
         r0=1,
     )

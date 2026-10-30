@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import pyshtools
 
+from coronal_diffusion import utils
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -148,15 +150,8 @@ def compute_peak_lat_grid(real, imag, lats, lons, radius):
     peak_lat_south : float
         Peak latitude in southern hemisphere across all longitudes
     """
-    from pyshtools.backends.shtools import SHctor
-
-    complex_array = np.empty((2,) + real.shape, dtype=np.float64)
-    complex_array[0] = real
-    complex_array[1] = imag
-
-    real_coeffs = SHctor(complex_array)
     coeffs = pyshtools.SHMagCoeffs.from_array(
-        real_coeffs,
+        utils.complex_to_real(real, imag),
         normalization="ortho",
         r0=1,
     )
