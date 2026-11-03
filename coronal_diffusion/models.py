@@ -51,6 +51,7 @@ class DiffusionModel(nn.Module):
             mmax=nmax + 1,
             norm="ortho",
             csphase=False,
+            grid="legendre-gauss"
         )
 
         self.sht = th.RealSHT(
@@ -60,6 +61,7 @@ class DiffusionModel(nn.Module):
             mmax=nmax + 1,
             norm="ortho",
             csphase=False,
+            grid="legendre-gauss"
         )
 
         # Main denoising network

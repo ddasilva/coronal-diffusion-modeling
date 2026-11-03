@@ -1,21 +1,21 @@
 import numpy as np
 
 # Name of the run, used for model checkpoints and tensorboard logs
-run_name = "experiment61-cs-phase-fix"
+run_name = "experiment62-adjusted-grid"
 
 # Training settings
-epochs = 500
+epochs = 20
 batch_size = 12
 max_train_batches = float("inf")
 max_test_batches = float("inf")
-# max_train_batches = 1
-# max_test_batches = 1
+#max_train_batches = 1
+#max_test_batches = 1
 
-restart_file = (
-    "checkpoints/experiment61-cs-phase-fix_4.pth"  # preload these weights prior to training
-)
-#restart_file = None
-start_epoch = 4  # zero indexed
+#restart_file = (
+#    "checkpoints/experiment61-cs-phase-fix_4.pth"  # preload these weights prior to training
+#)
+restart_file = None
+start_epoch = 0  # zero indexed
 
 # Learning rate and scheduler
 learning_rate = 0.0001
@@ -24,7 +24,7 @@ scheduler_gamma = 0.8
 
 # Spherical Harmonic Settings
 nmax = 90
-fit_nmax = 45
+fit_nmax = 90
 X_SIZE = 8281
 
 # Dataloader settings
@@ -49,8 +49,8 @@ val_wsa_dir = (
 )
 
 # Scalers and spherical harmonic fix matrix
-scalers_path = "data/scalers_gong2.json"
-spharm_fit_mat_path = "data/spharm_fit_mat_gong2.h5"
+scalers_path = "data/scalers_gong3.json"
+spharm_fit_mat_path = "data/spharm_fit_mat_gong3.h5"
 
 # Checkpoint plotting parameters for training. Flags whether to plot Br
 # (magnetograms) and field lines (traces) after each epoch. When they
@@ -64,5 +64,5 @@ min_radius = 1.0
 max_radius = 2.5
 radii = np.logspace(np.log10(min_radius), np.log10(max_radius), 16)
 
-nlat = 90
-nlon = 180
+nlat = 96
+nlon = 192

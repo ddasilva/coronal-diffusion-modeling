@@ -94,9 +94,11 @@ def read_ortho_harmonics(file_path):
         normalization="schmidt",
         r0=1,
     )
-    coeffs = coeffs.convert(normalization="ortho")
+    coeffs = coeffs.convert(normalization="ortho", kind='complex', csphase=1)
 
-    real, imag = coeffs.coeffs
+    real = coeffs.coeffs[0].real
+    imag = coeffs.coeffs[0].imag
+    
     return real, imag
 
 

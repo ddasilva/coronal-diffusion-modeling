@@ -26,6 +26,11 @@ beta2 = 0.02
 b_t = (beta2 - beta1) * torch.linspace(
     0, 1, timesteps + 1, device=device
 ) + beta1  # small to big
-a_t = 1 - b_t  # big to small
-ab_t = torch.cumsum(a_t.log(), dim=0).exp()  # big to small
-ab_t[0] = 1
+#a_t = 1 - b_t  # big to small
+#ab_t = torch.cumsum(a_t.log(), dim=0).exp()  # big to small
+#ab_t[0] = 1
+
+a_t = 1 - b_t
+ab_t = torch.ones(timesteps + 1, device=device)
+ab_t[1:] = torch.cumprod(a_t[1:], dim=0)          # ab_t[t] = prod_{s=1}^{t} a_s
+assert torch.allclose(ab_t[1:] / ab_t[:-1], a_t[1:])   # consistency, now holds at t=1

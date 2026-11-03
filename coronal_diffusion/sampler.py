@@ -26,7 +26,8 @@ class SamplingData:
 def load_sampling_data():
     # Load spherical harmonic fitting matrix
     hdf = h5py.File(config.spharm_fit_mat_path)
-    A = torch.tensor(hdf["A"][:], device=device)
+    #A = torch.tensor(hdf["A"][:], device=device)
+    A = None
     hdf.close()
 
     # Load scalers parameters
@@ -74,8 +75,8 @@ def sample(
         imgs = sample_ddpm(model, context, verbose)
 
     # Perform sphericla harmonic fit of last image
-    real, imag = spherical_harm_fit_smaller(imgs[-1], sampling_data, verbose)
-
+    real, imag = spherical_harm_fit(imgs[-1], model, sampling_data,
+                                    nmax=config.nmax)
     # Branch based on return_history
     if return_history:
         return imgs, (real, imag)
@@ -83,41 +84,49 @@ def sample(
         return imgs[-1], (real, imag)
 
 
-def spherical_harm_fit_smaller(
-    img, sampling_data, verbose=True, fitrad=config.radii.size
-):
-    # Rescale image -------------------------------------
-    img_rescaled = np.zeros(img.shape)
-    nrad, nlat, nlon = img.shape
+@torch.no_grad()
+def spherical_harm_fit(img_scaled, model, sampling_data,
+                       nmax=config.nmax, fitrad=None, shell_weights=None, return_residual=False):
+    """Fit coefficients to the model's potential-field image stack.
 
-    for i in range(fitrad):
-        img_rescaled[i] = np.sinh(img[i] * sampling_data.std[i]) * (
-            sampling_data.unscaled_abs[i] * SCALE_INFLATION
+    On an exact-quadrature grid the design matrix is block diagonal in (l, m),
+    so this is a 1-D weighted least squares per coefficient over the radial
+    shells -- no 35 GB design matrix, no ill-conditioning.
+    """
+    radii = config.radii if fitrad is None else config.radii[:fitrad]
+    nrad = len(radii)
+
+    # 1. Undo the asinh scaling -> physical units
+    img = torch.as_tensor(img_scaled[:nrad], dtype=torch.float64, device=device)
+    for i in range(nrad):
+        img[i] = torch.sinh(img[i] * sampling_data.std[i]) * (
+            sampling_data.unscaled_abs[i] * constants.SCALE_INFLATION
         )
+    if not torch.isfinite(img).all():
+        raise FloatingPointError("non-finite image after de-scaling")
 
-    # Build right hand side of Ax=b equation ------------------
-    b = torch.zeros(fitrad * nlat * nlon, device=device)
+    # 2. Forward SHT of each shell -> c_hat[i, l, m]
+    c_hat = model.sht(img.to(torch.float32)).to(torch.complex128)
 
-    for i in range(fitrad):
-        start_row = i * nlat * nlon
-        end_row = start_row + nlat * nlon
-        b[start_row:end_row] = torch.tensor(img_rescaled[i].flatten(), device=device)
+    # 3. Per-(l, m) weighted least squares across shells
+    l = torch.arange(nmax + 1, dtype=torch.float64, device=device).reshape(1, -1, 1)
+    r = torch.as_tensor(radii, dtype=torch.float64, device=device).reshape(-1, 1, 1)
+    w = (torch.ones(nrad, dtype=torch.float64, device=device)
+         if shell_weights is None
+         else torch.as_tensor(shell_weights, dtype=torch.float64, device=device)
+         ).reshape(-1, 1, 1)
 
-    # New approcah
-    if verbose:
-        print(f"Fitting spherical harmonics ({config.fit_nmax})")
+    g = r ** -(l + 1)                 # radial response, depends only on l
+    c = (w * g * c_hat).sum(0) / (w * g ** 2).sum(0)
 
-    X = np.zeros(sampling_data.A.shape[1] + 1)
-    X[1:] = (
-        torch.linalg.lstsq(sampling_data.A[: fitrad * nlat * nlon, :], b)[0]
-        .cpu()
-        .numpy()
-    )
+    c[0, 0] = 0                       # no monopole, matches X[0] = 0 
+    real, imag = c.real.cpu().numpy(), c.imag.cpu().numpy()
+    
+    if not return_residual:
+        return real, imag
 
-    real, imag = unpack_coeffs(X, nmax=config.fit_nmax)
-
-    return real, imag
-
+    resid = (w * (c_hat - u * ratio).abs() ** 2).sum(0)   # per-(l, m) misfit
+    return real, imag, resid.cpu().numpy()
 
 @torch.no_grad()
 def sample_ddim(model, context, n, eta, verbose=True):
