@@ -4,18 +4,18 @@ import numpy as np
 run_name = "experiment62-adjusted-grid"
 
 # Training settings
-epochs = 20
+epochs = 100
 batch_size = 12
 max_train_batches = float("inf")
 max_test_batches = float("inf")
 #max_train_batches = 1
 #max_test_batches = 1
 
-#restart_file = (
-#    "checkpoints/experiment61-cs-phase-fix_4.pth"  # preload these weights prior to training
-#)
-restart_file = None
-start_epoch = 0  # zero indexed
+restart_file = (
+    "checkpoints/experiment62-adjusted-grid_20.pth"  # preload these weights prior to training
+)
+#restart_file = None
+start_epoch = 20  # zero indexed
 
 # Learning rate and scheduler
 learning_rate = 0.0001

@@ -10,7 +10,7 @@ import h5py
 import torch
 
 sys.path.append('..')
-from coronal_diffusion import constants, models, sampler
+from coronal_diffusion import constants, models, sampler, utils
 from prepare_dataset import load_df_hemi_ss, load_df_hemi_lat
 
 
@@ -35,6 +35,8 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    utils.set_seeds(0)
+    
     # Load context data and build weekly date range.
     df_hemi_ss = load_df_hemi_ss()
     df_hemi_lat = load_df_hemi_lat()
