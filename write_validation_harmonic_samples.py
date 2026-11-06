@@ -54,21 +54,25 @@ def main():
     ):
         real_samples = []
         imag_samples = []
-
+        resid_samples = []
+        
         for _ in range(args.nsamples):
-            _, (real, imag) = sampler.sample(
+            _, (real, imag), resid = sampler.sample(
                 model=model,
                 sampling_data=sampling_data,
                 context=context,
                 method="ddpm",
                 verbose=False,
+                return_residual=True,
             )
             real_samples.append(real)
             imag_samples.append(imag)
-
+            resid_samples.append(resid)
+            
         real_samples = np.stack(real_samples, axis=0)
         imag_samples = np.stack(imag_samples, axis=0)
-
+        resid_samples = np.stack(resid_samples, axis=0)
+        
         timestamp = time.isoformat()
         file_path = out_dir / f"{timestamp}.hdf5"
 
@@ -78,7 +82,8 @@ def main():
             hdf["context"] = context
             hdf["real"] = real_samples.squeeze()
             hdf["imag"] = imag_samples.squeeze()
-
+            hdf["resid"] = resid_samples.squeeze()
+            
     print(f"Wrote {len(date_range)} files to {out_dir}")
 
 

@@ -89,7 +89,7 @@ def read_ortho_harmonics(file_path):
     g_coeffs = sph_data[0, :, :].T
     h_coeffs = sph_data[1, :, :].T
 
-    coeffs = pyshtools.SHMagCoeffs.from_array(
+    coeffs = pyshtools.SHCoeffs.from_array(
         np.array([g_coeffs, h_coeffs]),
         normalization="schmidt",
         r0=1,

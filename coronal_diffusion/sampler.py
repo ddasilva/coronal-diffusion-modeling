@@ -20,16 +20,9 @@ import config
 class SamplingData:
     std: np.array  # scaling std (after asinh scaling)
     unscaled_abs: np.array  # potential image asinh scaling factor
-    A: torch.Tensor  # spherical harmonic fit array
 
 
 def load_sampling_data():
-    # Load spherical harmonic fitting matrix
-    hdf = h5py.File(config.spharm_fit_mat_path)
-    #A = torch.tensor(hdf["A"][:], device=device)
-    A = None
-    hdf.close()
-
     # Load scalers parameters
     with open(config.scalers_path) as fh:
         scalers_dict = json.load(fh)
@@ -38,7 +31,7 @@ def load_sampling_data():
     unscaled_abs = np.array(scalers_dict["unscaled_abs"])
 
     # Load spherical harmonic fitting matrix
-    return SamplingData(std=std, unscaled_abs=unscaled_abs, A=A)
+    return SamplingData(std=std, unscaled_abs=unscaled_abs)
 
 
 def sample(
@@ -50,6 +43,7 @@ def sample(
     eta=0.1,
     method="ddpm",
     return_history=False,
+    return_residual=False,
     verbose=True,
 ):
     # Check command line arguments
@@ -75,14 +69,23 @@ def sample(
         imgs = sample_ddpm(model, context, verbose)
 
     # Perform sphericla harmonic fit of last image
-    real, imag = spherical_harm_fit(imgs[-1], model, sampling_data,
-                                    nmax=config.nmax)
+    real, imag, resid = spherical_harm_fit(imgs[-1], model, sampling_data,
+                                    nmax=config.nmax, return_residual=True)
+
+    
+    
     # Branch based on return_history
     if return_history:
-        return imgs, (real, imag)
+        rv = [imgs, (real, imag)]
     else:
-        return imgs[-1], (real, imag)
+        rv = [imgs[-1], (real, imag)]
 
+    if return_residual:
+        rv.append(resid)
+
+    rv = tuple(rv)
+
+    return rv
 
 @torch.no_grad()
 def spherical_harm_fit(img_scaled, model, sampling_data,
@@ -125,7 +128,8 @@ def spherical_harm_fit(img_scaled, model, sampling_data,
     if not return_residual:
         return real, imag
 
-    resid = (w * (c_hat - u * ratio).abs() ** 2).sum(0)   # per-(l, m) misfit
+    resid = (w * (c_hat - g * c).abs() ** 2).sum(0)      # (L, L), per-(l, m) misfit
+
     return real, imag, resid.cpu().numpy()
 
 @torch.no_grad()

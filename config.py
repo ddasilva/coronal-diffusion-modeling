@@ -24,7 +24,6 @@ scheduler_gamma = 0.8
 
 # Spherical Harmonic Settings
 nmax = 90
-fit_nmax = 90
 X_SIZE = 8281
 
 # Dataloader settings
@@ -48,9 +47,8 @@ val_wsa_dir = (
     "/data/dedasilv/coronal-diffusion-modeling/CoronalFieldExtrapolation_GONG/val"
 )
 
-# Scalers and spherical harmonic fix matrix
+# Scalers 
 scalers_path = "data/scalers_gong3.json"
-spharm_fit_mat_path = "data/spharm_fit_mat_gong3.h5"
 
 # Checkpoint plotting parameters for training. Flags whether to plot Br
 # (magnetograms) and field lines (traces) after each epoch. When they
