@@ -1,6 +1,8 @@
 checkpoints/*.pth
 runs
 plots/*
+data/*.h5
+data/*.json
 
 *~
 __pycache__
