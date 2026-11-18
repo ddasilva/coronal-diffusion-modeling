@@ -1,32 +1,29 @@
 import argparse
-from datetime import datetime
-import os
 from pathlib import Path
 
-from astropy.io import fits
 from joblib import Parallel, delayed
 from joblib_progress import joblib_progress
 from matplotlib.dates import date2num
 import h5py
 import numpy as np
-import pandas as pd
 import pyshtools
 
-from coronal_diffusion import constants, utils
+from coronal_diffusion import utils
 from write_validation_unsignedflux_samples import (
     build_flux_grid,
     integrate_unsigned_flux,
 )
 import config
+from validation_dataset_utils import (
+    load_coeffs_from_dataset,
+    select_random_realization_per_time_augmented,
+)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--start-time", type=str, default="2010-01-01")
-    parser.add_argument("--end-time", type=str, default="2025-12-31")
-    parser.add_argument("--freq", type=str, default="7D")
     parser.add_argument("--n-jobs", type=int, default=16)
-    parser.add_argument("--n-realizations", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--radii",
         type=float,
@@ -35,16 +32,14 @@ def main():
     )
     parser.add_argument("--lat-step", type=float, default=1.0)
     parser.add_argument("--lon-step", type=float, default=1.0)
-    parser.add_argument("--wsa-dir", type=str, default=config.train_wsa_dir)
+    parser.add_argument("--test-dataset-path", type=str, default=config.test_dataset_path)
+    parser.add_argument("--test-wsa-dir", type=str, default=config.test_wsa_dir)
     parser.add_argument(
         "--out-file",
         type=str,
         default="data/validation/unsignedflux_testdata.h5",
     )
     args = parser.parse_args()
-
-    if not 1 <= args.n_realizations <= constants.N_REAL:
-        raise ValueError(f"--n-realizations must be in [1, {constants.N_REAL}].")
 
     out_file = Path(args.out_file)
     out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -55,82 +50,105 @@ def main():
     if lats.size == 0 or lons.size == 0 or rs.size == 0:
         raise ValueError("Latitude, longitude, and radius grids must be non-empty.")
 
-    date_range = pd.date_range(args.start_time, args.end_time, freq=args.freq)
-    wsa_times, wsa_file_paths = get_r000_file_paths(args.wsa_dir)
-    wsa_times_d2n = date2num(wsa_times)
-
-    # Gather (time index, realization index, file path) items to process.
-    iter_items = []
-    matched_times = []
-    for i, time in enumerate(date_range):
-        idx = np.argmin(np.abs(wsa_times_d2n - date2num(time)))
-        base_file = os.path.join(args.wsa_dir, wsa_file_paths[idx])
-        matched_times.append(wsa_times[idx].isoformat())
-
-        for j in range(args.n_realizations):
-            iter_items.append((i, j, base_file.replace("R000", f"R{j:03d}")))
+    sampled_items = select_random_realization_per_time_augmented(
+        test_dataset_path=args.test_dataset_path,
+        test_wsa_dir=args.test_wsa_dir,
+        seed=args.seed,
+        min_realization=0,
+        max_realization=11,
+    )
+    n_selected = len(sampled_items)
 
     parallel = Parallel(n_jobs=args.n_jobs, prefer="processes")
     tasks = [
-        delayed(process_item)(i, j, file_path, lats, lons, rs, solid_angle)
-        for i, j, file_path in iter_items
+        delayed(process_item)(
+            sample_index,
+            args.test_dataset_path,
+            item["dataset_index"],
+            item["apply_polarity_inversion"],
+            lats,
+            lons,
+            rs,
+            solid_angle,
+        )
+        for sample_index, item in enumerate(sampled_items)
     ]
     with joblib_progress("Computing unsigned flux...", total=len(tasks)):
         results = parallel(tasks)
 
-    flux = np.full(
-        (len(date_range), args.n_realizations, rs.size), np.nan, dtype=np.float64
+    selected_times = np.array([item["time"] for item in sampled_items])
+    selected_realizations = np.array(
+        [item["realization_index"] for item in sampled_items], dtype=np.int16
     )
-    for i, j, flux_ij in results:
-        flux[i, j] = flux_ij
+    selected_augmentations = np.array(
+        [item["augmentation_index"] for item in sampled_items], dtype=np.int8
+    )
+    selected_polarity_inversions = np.array(
+        [item["apply_polarity_inversion"] for item in sampled_items], dtype=np.uint8
+    )
+
+    flux = np.full((n_selected, rs.size), np.nan, dtype=np.float64)
+    for sample_index, flux_ij in results:
+        flux[sample_index] = flux_ij
 
     with h5py.File(out_file, "w") as hdf:
-        hdf["times_d2n"] = date2num(date_range)
+        hdf["times_d2n"] = date2num(selected_times)
+        hdf["realization_index"] = selected_realizations
+        hdf["augmentation_index"] = selected_augmentations
+        hdf["polarity_inversion_applied"] = selected_polarity_inversions
         hdf["rs"] = rs
         hdf["unsigned_flux"] = flux
-        hdf["matched_wsa_time_iso"] = np.array(matched_times, dtype="S")
-        hdf.attrs["source_wsa_dir"] = str(args.wsa_dir)
-        hdf.attrs["n_realizations"] = args.n_realizations
+        hdf.attrs["source_test_dataset"] = args.test_dataset_path
+        hdf.attrs["sample_size"] = n_selected
+        hdf.attrs["sample_seed"] = args.seed
         hdf.attrs["lat_step"] = args.lat_step
         hdf.attrs["lon_step"] = args.lon_step
         hdf.attrs["flux_definition"] = (
             "Unsigned radial flux, integral of |Br| r^2 dOmega over the sphere "
             "of each radius r (in solar radii), in units of [Br] * Rs^2. "
-            "Axes: (time, realization, radius)."
+            "Axes: (sample, radius)."
         )
 
-    print(f"Wrote {len(date_range)} timestamps to {out_file}")
+    print(f"Wrote {n_selected} sampled items to {out_file}")
 
 
-def get_r000_file_paths(wsa_dir):
-    file_paths = os.listdir(wsa_dir)
-    file_paths = [f for f in file_paths if f.endswith(".fits") and "R000" in f]
-    file_paths.sort()
+def process_item(
+    sample_index,
+    test_dataset_path,
+    dataset_index,
+    apply_polarity_inversion,
+    lats,
+    lons,
+    rs,
+    solid_angle,
+):
+    return sample_index, compute_unsigned_flux(
+        test_dataset_path,
+        dataset_index,
+        apply_polarity_inversion,
+        lats,
+        lons,
+        rs,
+        solid_angle,
+    )
 
-    times = []
-    for file_path in file_paths:
-        time = datetime.strptime(
-            os.path.basename(file_path).split("R")[0], "wsa_%Y%m%d%H%M"
-        )
-        times.append(time)
 
-    return np.array(times), np.array(file_paths)
-
-
-def process_item(i, j, file_path, lats, lons, rs, solid_angle):
-    return i, j, compute_unsigned_flux(file_path, lats, lons, rs, solid_angle)
-
-
-def compute_unsigned_flux(file_path, lats, lons, rs, solid_angle):
-    with fits.open(file_path) as fits_file:
-        sph_data = fits_file[3].data.copy()
-
-    G = sph_data[0, :, :].T
-    H = sph_data[1, :, :].T
-
+def compute_unsigned_flux(
+    test_dataset_path,
+    dataset_index,
+    apply_polarity_inversion,
+    lats,
+    lons,
+    rs,
+    solid_angle,
+):
+    real, imag = load_coeffs_from_dataset(test_dataset_path, dataset_index)
+    if apply_polarity_inversion:
+        real = -real
+        imag = -imag
     coeffs = pyshtools.SHMagCoeffs.from_array(
-        np.array([G, H]),
-        normalization="schmidt",
+        utils.complex_to_real(real, imag),
+        normalization="ortho",
         r0=1,
     )
 

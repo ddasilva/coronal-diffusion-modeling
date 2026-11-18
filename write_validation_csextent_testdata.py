@@ -1,42 +1,38 @@
 import argparse
-from datetime import datetime
-import os
 from pathlib import Path
 
-from astropy.io import fits
 from joblib import Parallel, delayed
 from joblib_progress import joblib_progress
 from matplotlib.dates import date2num
 import contourpy
 import h5py
 import numpy as np
-import pandas as pd
 import pyshtools
 
-from coronal_diffusion import constants
+from coronal_diffusion import utils
 import config
+from validation_dataset_utils import (
+    load_coeffs_from_dataset,
+    select_random_realization_per_time_augmented,
+)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--start-time", type=str, default="2010-01-01")
-    parser.add_argument("--end-time", type=str, default="2025-12-31")
-    parser.add_argument("--freq", type=str, default="7D")
     parser.add_argument("--n-jobs", type=int, default=16)
-    parser.add_argument("--n-realizations", default=1, type=int)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--radius", type=float, default=2.5)
     parser.add_argument("--level", type=float, default=0.0)
     parser.add_argument("--lat-step", type=float, default=1.0)
     parser.add_argument("--lon-step", type=float, default=1.0)
+    parser.add_argument("--test-dataset-path", type=str, default=config.test_dataset_path)
+    parser.add_argument("--test-wsa-dir", type=str, default=config.test_wsa_dir)
     parser.add_argument(
         "--out-file",
         type=str,
         default="data/validation/csextent_testdata.h5",
     )
     args = parser.parse_args()
-
-    if not 1 <= args.n_realizations <= constants.N_REAL:
-        raise ValueError(f"--n-realizations must be in [1, {constants.N_REAL}].")
 
     out_file = Path(args.out_file)
     out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -47,90 +43,109 @@ def main():
     if lats.size == 0 or lons.size == 0:
         raise ValueError("Latitude and longitude grids must contain at least one point.")
 
-    date_range = pd.date_range(args.start_time, args.end_time, freq=args.freq)
-    train_times, train_file_paths = get_r000_train_file_paths()
-    train_times_d2n = date2num(train_times)
-
-    # Gather (time index, realization index, file path) items to process.
-    iter_items = []
-    matched_times = []
-    for i, time in enumerate(date_range):
-        idx = np.argmin(np.abs(train_times_d2n - date2num(time)))
-        base_file = os.path.join(config.train_wsa_dir, train_file_paths[idx])
-        matched_times.append(train_times[idx].isoformat())
-
-        for j in range(args.n_realizations):
-            iter_items.append((i, j, base_file.replace("R000", f"R{j:03d}")))
+    sampled_items = select_random_realization_per_time_augmented(
+        test_dataset_path=args.test_dataset_path,
+        test_wsa_dir=args.test_wsa_dir,
+        seed=args.seed,
+        min_realization=0,
+        max_realization=11,
+    )
+    n_selected = len(sampled_items)
 
     parallel = Parallel(n_jobs=args.n_jobs, prefer="processes")
     tasks = [
         delayed(process_item)(
-            i, j, file_path, lats, lons, args.radius, args.level
+            sample_index,
+            args.test_dataset_path,
+            item["dataset_index"],
+            item["apply_polarity_inversion"],
+            lats,
+            lons,
+            args.radius,
+            args.level,
         )
-        for i, j, file_path in iter_items
+        for sample_index, item in enumerate(sampled_items)
     ]
     with joblib_progress("Computing current sheet extents...", total=len(tasks)):
         results = parallel(tasks)
 
-    lat_min = np.full((len(date_range), args.n_realizations), np.nan, dtype=np.float32)
-    lat_max = np.full((len(date_range), args.n_realizations), np.nan, dtype=np.float32)
-    for i, j, extent in results:
-        lat_min[i, j] = extent[0]
-        lat_max[i, j] = extent[1]
+    selected_times = np.array([item["time"] for item in sampled_items])
+    selected_realizations = np.array(
+        [item["realization_index"] for item in sampled_items], dtype=np.int16
+    )
+    selected_augmentations = np.array(
+        [item["augmentation_index"] for item in sampled_items], dtype=np.int8
+    )
+    selected_polarity_inversions = np.array(
+        [item["apply_polarity_inversion"] for item in sampled_items], dtype=np.uint8
+    )
+
+    lat_min = np.full(n_selected, np.nan, dtype=np.float32)
+    lat_max = np.full(n_selected, np.nan, dtype=np.float32)
+    for sample_index, extent in results:
+        lat_min[sample_index] = extent[0]
+        lat_max[sample_index] = extent[1]
 
     with h5py.File(out_file, "w") as hdf:
-        hdf["times_d2n"] = date2num(date_range)
+        hdf["times_d2n"] = date2num(selected_times)
+        hdf["realization_index"] = selected_realizations
+        hdf["augmentation_index"] = selected_augmentations
+        hdf["polarity_inversion_applied"] = selected_polarity_inversions
         hdf["lat_min"] = lat_min
         hdf["lat_max"] = lat_max
         hdf["lat_extent"] = lat_max - lat_min
         hdf["lats"] = lats
         hdf["lons"] = lons
         hdf["radius"] = np.array([args.radius], dtype=np.float32)
-        hdf["matched_wsa_time_iso"] = np.array(matched_times, dtype="S")
-        hdf.attrs["source_wsa_dir"] = str(config.train_wsa_dir)
-        hdf.attrs["n_realizations"] = args.n_realizations
+        hdf.attrs["source_test_dataset"] = args.test_dataset_path
+        hdf.attrs["sample_size"] = n_selected
+        hdf.attrs["sample_seed"] = args.seed
         hdf.attrs["contour_level"] = args.level
         hdf.attrs["extent_definition"] = (
             "Minimum and maximum latitude (degrees) reached by the Br contour at "
             "the given level and radius. NaN where no contour exists."
         )
 
-    print(f"Wrote {len(date_range)} timestamps to {out_file}")
+    print(f"Wrote {n_selected} sampled items to {out_file}")
 
 
-def get_r000_train_file_paths():
-    train_file_paths = os.listdir(config.train_wsa_dir)
-    train_file_paths = [
-        f for f in train_file_paths if f.endswith(".fits") and "R000" in f
-    ]
-    train_file_paths.sort()
+def process_item(
+    sample_index,
+    test_dataset_path,
+    dataset_index,
+    apply_polarity_inversion,
+    lats,
+    lons,
+    radius,
+    level,
+):
+    br = compute_br_grid(
+        test_dataset_path,
+        dataset_index,
+        apply_polarity_inversion,
+        lats=lats,
+        lons=lons,
+        radius=radius,
+    )
+    return sample_index, contour_lat_extent(br, lats=lats, lons=lons, level=level)
 
-    times = []
-    for file_path in train_file_paths:
-        time = datetime.strptime(
-            os.path.basename(file_path).split("R")[0], "wsa_%Y%m%d%H%M"
-        )
-        times.append(time)
 
-    return np.array(times), np.array(train_file_paths)
-
-
-def process_item(i, j, file_path, lats, lons, radius, level):
-    br = compute_br_grid(file_path, lats=lats, lons=lons, radius=radius)
-    return i, j, contour_lat_extent(br, lats=lats, lons=lons, level=level)
-
-
-def compute_br_grid(file_path, lats, lons, radius):
-    with fits.open(file_path) as fits_file:
-        sph_data = fits_file[3].data.copy()
-
-    G = sph_data[0, :, :].T
-    H = sph_data[1, :, :].T
-
-    coeffs_array = np.array([G, H])
+def compute_br_grid(
+    test_dataset_path,
+    dataset_index,
+    apply_polarity_inversion,
+    lats,
+    lons,
+    radius,
+):
+    real, imag = load_coeffs_from_dataset(test_dataset_path, dataset_index)
+    if apply_polarity_inversion:
+        real = -real
+        imag = -imag
+    coeffs_array = utils.complex_to_real(real, imag)
     coeffs = pyshtools.SHMagCoeffs.from_array(
         coeffs_array,
-        normalization="schmidt",
+        normalization="ortho",
         r0=1,
     )
 

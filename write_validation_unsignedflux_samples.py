@@ -1,4 +1,6 @@
 import argparse
+from datetime import datetime
+import os
 from pathlib import Path
 
 from joblib import Parallel, delayed
@@ -10,14 +12,15 @@ import pandas as pd
 import pyshtools
 
 from coronal_diffusion import utils
+import config
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--start-time", type=str, default="2010-01-01")
-    parser.add_argument("--end-time", type=str, default="2025-12-31")
-    parser.add_argument("--freq", type=str, default="7D")
     parser.add_argument("--n-jobs", type=int, default=16)
+    parser.add_argument("--sample-size", type=int, default=5000)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--test-wsa-dir", type=str, default=config.test_wsa_dir)
     parser.add_argument(
         "--radii",
         type=float,
@@ -48,19 +51,24 @@ def main():
     out_file = Path(args.out_file)
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
+    if args.sample_size < 1:
+        raise ValueError("--sample-size must be >= 1.")
+
     lats, lons, solid_angle = build_flux_grid(args.lat_step, args.lon_step)
     rs = np.array(args.radii, dtype=np.float64)
 
     if lats.size == 0 or lons.size == 0 or rs.size == 0:
         raise ValueError("Latitude, longitude, and radius grids must be non-empty.")
 
-    date_range = pd.date_range(args.start_time, args.end_time, freq=args.freq)
+    test_times = sample_test_times(
+        get_test_times(args.test_wsa_dir), args.sample_size, args.seed
+    )
     available_times, available_files = load_available_sample_files(samples_dir)
     if len(available_times) == 0:
         raise ValueError(f"No harmonic sample files found in {samples_dir}.")
 
     matched_files, matched_times = match_sample_files(
-        requested_times=date_range,
+        requested_times=test_times,
         available_times=available_times,
         available_files=available_files,
         mode=args.match_mode,
@@ -79,7 +87,7 @@ def main():
             solid_angle=solid_angle,
         )
         for i, (time, sample_file, sample_time) in enumerate(
-            zip(date_range, matched_files, matched_times)
+            zip(test_times, matched_files, matched_times)
         )
         if sample_file is not None
     ]
@@ -95,8 +103,8 @@ def main():
 
     nsamples = valid_results[0][4].shape[0]
 
-    flux = np.full((len(date_range), nsamples, rs.size), np.nan, dtype=np.float64)
-    contexts = np.full((len(date_range), 6), np.nan, dtype=np.float32)
+    flux = np.full((len(test_times), nsamples, rs.size), np.nan, dtype=np.float64)
+    contexts = np.full((len(test_times), 6), np.nan, dtype=np.float32)
 
     n_written = 0
     for index, _, _, context, flux_i in valid_results:
@@ -108,13 +116,15 @@ def main():
         n_written += 1
 
     with h5py.File(out_file, "w") as hdf:
-        hdf["times_d2n"] = date2num(date_range)
+        hdf["times_d2n"] = date2num(test_times)
         hdf["contexts"] = contexts
         hdf["rs"] = rs
         hdf["unsigned_flux"] = flux
         hdf.attrs["source_samples_dir"] = str(samples_dir)
-        hdf.attrs["n_requested_times"] = len(date_range)
+        hdf.attrs["n_requested_times"] = len(test_times)
         hdf.attrs["n_available_times"] = n_written
+        hdf.attrs["sample_size"] = len(test_times)
+        hdf.attrs["sample_seed"] = args.seed
         hdf.attrs["match_mode"] = args.match_mode
         hdf.attrs["lat_step"] = args.lat_step
         hdf.attrs["lon_step"] = args.lon_step
@@ -124,7 +134,33 @@ def main():
             "Axes: (time, sample, radius)."
         )
 
-    print(f"Wrote {n_written}/{len(date_range)} timestamps to {out_file}")
+    print(f"Wrote {n_written}/{len(test_times)} timestamps to {out_file}")
+
+
+def get_test_times(test_wsa_dir):
+    test_file_paths = os.listdir(test_wsa_dir)
+    test_file_paths = [f for f in test_file_paths if f.endswith(".fits") and "R000" in f]
+    test_file_paths.sort()
+
+    if len(test_file_paths) == 0:
+        raise ValueError(f"No R000 test files found in {test_wsa_dir}.")
+
+    times = []
+    for file_path in test_file_paths:
+        time = datetime.strptime(
+            os.path.basename(file_path).split("R")[0], "wsa_%Y%m%d%H%M"
+        )
+        times.append(time)
+
+    return np.array(times)
+
+
+def sample_test_times(test_times, sample_size, seed):
+    n_available = len(test_times)
+    n_selected = min(sample_size, n_available)
+    rng = np.random.default_rng(seed)
+    selected_indices = rng.choice(n_available, size=n_selected, replace=False)
+    return np.array(test_times)[selected_indices]
 
 
 def build_flux_grid(lat_step, lon_step):

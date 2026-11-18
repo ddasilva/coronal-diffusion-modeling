@@ -341,7 +341,7 @@ def do_test_loop(
     print(f"Epoch [{epoch+1}/{config.epochs}], Testing Loss: {epoch_loss:.4f}")
 
 
-def get_potential_images(model, coeffs, radii, scalers_dict):
+def get_potential_images(model, coeffs, radii, scalers_dict, scale=True):
     B, nmax, _ = coeffs.shape
     nrad = radii.size
 
@@ -357,10 +357,13 @@ def get_potential_images(model, coeffs, radii, scalers_dict):
             radial_scaling[:, n, :] = 1 / radii[i] ** (n + 1)
 
         img_chan = model.isht(radial_scaling * coeffs).float()
-        img_chan = (
-            torch.asinh(img_chan / (scalers_dict["unscaled_abs"][i] * constants.SCALE_INFLATION))
-            / scalers_dict["std"][i]
-        )
+
+        if scale:
+            img_chan = (
+                torch.asinh(img_chan / (scalers_dict["unscaled_abs"][i] * constants.SCALE_INFLATION))
+                / scalers_dict["std"][i]
+            )
+        
         images[:, i, :, :] = img_chan
 
     return images

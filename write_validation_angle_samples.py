@@ -1,24 +1,25 @@
 import argparse
+from datetime import datetime
+import os
 from pathlib import Path
 
 from matplotlib.dates import date2num
 import h5py
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 import pyshtools
-from pyshtools.backends.shtools import SHctor
 
 from coronal_diffusion import utils
+import config
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--start-time", type=str, default="2010-01-01")
-    parser.add_argument("--end-time", type=str, default="2025-12-31")
-    parser.add_argument("--freq", type=str, default="7D")
     parser.add_argument("--radius", type=float, default=2.5)
     parser.add_argument("--lat-step", type=float, default=1.0)
     parser.add_argument("--lon-step", type=float, default=1.0)
+    parser.add_argument("--sample-size", type=int, default=5000)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--test-wsa-dir", type=str, default=config.test_wsa_dir)
     parser.add_argument(
         "--samples-dir",
         type=str,
@@ -35,16 +36,21 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.sample_size < 1:
+        raise ValueError("--sample-size must be >= 1.")
+
     lats = np.arange(-89.0, 90.0, args.lat_step, dtype=np.float64)
     lons = np.arange(-180.0, 180.0, args.lon_step, dtype=np.float64)
 
     if lats.size == 0 or lons.size == 0:
         raise ValueError("Latitude and longitude grids must contain at least one point.")
 
-    date_range = pd.date_range(args.start_time, args.end_time, freq=args.freq)
+    test_times = sample_test_times(
+        get_test_times(args.test_wsa_dir), args.sample_size, args.seed
+    )
 
     n_written = 0
-    for time in tqdm(date_range, desc="Writing angle samples"):
+    for time in tqdm(test_times, desc="Writing angle samples"):
         timestamp = time.isoformat()
         sample_file = samples_dir / f"{timestamp}.hdf5"
 
@@ -81,6 +87,32 @@ def main():
         n_written += 1
 
     print(f"Wrote {n_written} files to {out_dir}")
+
+
+def get_test_times(test_wsa_dir):
+    test_file_paths = os.listdir(test_wsa_dir)
+    test_file_paths = [f for f in test_file_paths if f.endswith(".fits") and "R000" in f]
+    test_file_paths.sort()
+
+    if len(test_file_paths) == 0:
+        raise ValueError(f"No R000 test files found in {test_wsa_dir}.")
+
+    times = []
+    for file_path in test_file_paths:
+        time = datetime.strptime(
+            os.path.basename(file_path).split("R")[0], "wsa_%Y%m%d%H%M"
+        )
+        times.append(time)
+
+    return np.array(times)
+
+
+def sample_test_times(test_times, sample_size, seed):
+    n_available = len(test_times)
+    n_selected = min(sample_size, n_available)
+    rng = np.random.default_rng(seed)
+    selected_indices = rng.choice(n_available, size=n_selected, replace=False)
+    return np.array(test_times)[selected_indices]
 
 
 def ensure_sample_axis(real, imag, sample_file):

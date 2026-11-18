@@ -1,18 +1,11 @@
 from dataclasses import dataclass
 import json
-import itertools
 
-import h5py
 import numpy as np
 import torch
-from torch import nn
-import torch.nn.functional as F
-import torch.optim as optim
-
 
 from coronal_diffusion import constants, models
-from coronal_diffusion.constants import device, N_CONTEXT, SCALE_INFLATION
-from coronal_diffusion.utils import unpack_coeffs
+from coronal_diffusion.constants import device, N_CONTEXT
 import config
 
 
@@ -94,7 +87,7 @@ def spherical_harm_fit(img_scaled, model, sampling_data,
 
     On an exact-quadrature grid the design matrix is block diagonal in (l, m),
     so this is a 1-D weighted least squares per coefficient over the radial
-    shells -- no 35 GB design matrix, no ill-conditioning.
+    shells 
     """
     radii = config.radii if fitrad is None else config.radii[:fitrad]
     nrad = len(radii)
@@ -124,13 +117,28 @@ def spherical_harm_fit(img_scaled, model, sampling_data,
 
     c[0, 0] = 0                       # no monopole, matches X[0] = 0 
     real, imag = c.real.cpu().numpy(), c.imag.cpu().numpy()
-    
+
     if not return_residual:
         return real, imag
 
-    resid = (w * (c_hat - g * c).abs() ** 2).sum(0)      # (L, L), per-(l, m) misfit
 
-    return real, imag, resid.cpu().numpy()
+    # Calculate fitted image and residual
+    fitted_img = torch.zeros_like(img)
+
+    for i in range(nrad):
+        radial_scaling = torch.zeros(
+            c.shape, dtype=torch.float32, device=constants.device
+        )
+
+        for n in range(c.shape[-1]):
+            radial_scaling[n, :] = 1 / radii[i] ** (n + 1)
+
+        fitted_img[i, :, :] = model.isht(radial_scaling * c).float()
+
+    resid = (fitted_img - img).cpu().numpy()
+
+    return real, imag, resid
+    
 
 @torch.no_grad()
 def sample_ddim(model, context, n, eta, verbose=True):
